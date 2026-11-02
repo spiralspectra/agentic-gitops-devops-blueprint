@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentic-gitops-devops-blueprint"
+version = "0.1.0"
+description = "Production-grade GitOps, DevOps, testing, and evaluation blueprint for Enterprise Agentic AI on Google Cloud Platform"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "pydantic>=2.7.0",
+    "pyyaml>=6.0.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.9.0",
+    "codespell>=2.3.0",
+]
+lint = [
+    "ruff>=0.9.0",
+    "codespell>=2.3.0",
+]
+eval = [
+    "pytest>=8.0.0",
+    "google-genai>=0.1.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [
+    ".venv",
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501", # line too long (handled by ruff format)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agents", "deployment"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests/unit"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+markers = [
+    "integration: integration tests requiring local server or live endpoints",
+    "slow: tests with longer duration",
+]
+
+[tool.codespell]
+skip = "*.lock,*.json,*.tfstate*,./.venv,./.git,./node_modules"
+ignore-words-list = "te,nd"

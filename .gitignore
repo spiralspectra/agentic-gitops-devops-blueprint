@@ -1,0 +1,46 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Testing & Quality
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+artifacts/
+.results/
+
+# Environment & Local Secrets
+.env
+.env.*
+!.env.example
+vars/env.tfvars
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform/
+.terraform.lock.hcl
+
+# CodeMender & Local Agents
+.codemender/
+codemender/state/
+codemender/logs/
+codemender/patches/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

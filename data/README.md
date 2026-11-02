@@ -1,0 +1,14 @@
+# Synthetic Data & Zero-Trust View Guidelines
+
+This directory contains database view templates and synthetic mock data schemas.
+
+## Zero-Trust Authorized View Pattern (`data/views/`)
+The reference SQL template in `data/views/10_v_authorized_records.sql` demonstrates the 4-tier row-level security pattern:
+1. **Case and Whitespace Normalization**: Uses `LOWER(TRIM(SESSION_USER()))`.
+2. **Blank String Guard**: Guarantees non-empty identity with `NULLIF(TRIM(...), '')`.
+3. **Fan-out Prevention**: Evaluates permissions via `WHERE EXISTS (...)` instead of `INNER JOIN` to guarantee zero record duplication.
+4. **Strict Projection**: Never projects PII or raw authentication secrets.
+
+## Synthetic Fixture Guidelines
+- Never store or commit real customer or employee PII.
+- Generate deterministic test records using synthetic UUIDs and realistic dummy values.

@@ -1,0 +1,356 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Least privilege: empty root permissions; each job declares what it needs.
+permissions: {}
+
+env:
+  AGENTS_CLI_VERSION: "1.11.0"
+  TERRAFORM_VERSION: "1.11.4"
+  PYTHON_VERSION: "3.12"
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'your-gcp-project-id' }}
+  GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+
+jobs:
+  changes:
+    name: changes
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    outputs:
+      agent: ${{ steps.filter.outputs.agent }}
+      terraform: ${{ steps.filter.outputs.terraform }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            agent:
+              - 'agents/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'Dockerfile'
+            terraform:
+              - 'deployment/**'
+            frontend:
+              - 'frontend/**'
+            workflows:
+              - '.github/workflows/pr_checks.yaml'
+              - '.github/workflows/release.yaml'
+
+  lint:
+    name: lint
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+
+      - name: Install lint dependencies
+        run: uv sync --extra lint
+
+      - name: Ruff lint check
+        run: uv run ruff check --config pyproject.toml .
+
+      - name: Ruff format check
+        run: uv run ruff format --check --config pyproject.toml .
+
+      - name: Codespell check
+        run: uv run codespell --toml pyproject.toml .
+
+  terraform-plan:
+    name: terraform-plan
+    permissions:
+      contents: read
+      id-token: write
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUN: ${{ needs.changes.outputs.terraform == 'true' || needs.changes.outputs.agent == 'true' || needs.changes.outputs.workflows == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Nothing relevant changed
+        if: env.RUN != 'true'
+        run: echo "No agent/infra/workflow changes in this PR - terraform-plan skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Authenticate to Google Cloud (CI Read-Only Identity)
+        if: env.RUN == 'true'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_CI_SERVICE_ACCOUNT || vars.CI_SERVICE_ACCOUNT_EMAIL }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: env.RUN == 'true'
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt check
+        if: env.RUN == 'true'
+        run: terraform fmt -check -recursive -diff deployment/terraform
+
+      - name: terraform init (single-project)
+        if: env.RUN == 'true'
+        working-directory: deployment/terraform/single-project
+        run: terraform init -input=false -no-color
+
+      - name: terraform validate (single-project)
+        if: env.RUN == 'true'
+        working-directory: deployment/terraform/single-project
+        run: terraform validate -no-color
+
+      - name: terraform plan (single-project, read-only)
+        if: env.RUN == 'true'
+        id: plan
+        working-directory: deployment/terraform/single-project
+        run: |
+          set +e
+          terraform plan -input=false -lock=false -no-color \
+            -var-file=vars/env.tfvars -detailed-exitcode -out=tfplan > plan.txt 2>&1
+          code=$?
+          set -e
+          cat plan.txt
+          {
+            echo "## terraform plan (single-project)"
+            if [ "$code" = "0" ]; then echo "No infrastructure changes."; fi
+            if [ "$code" = "2" ]; then echo "**Changes would be applied on merge to main:**"; fi
+            echo '```'
+            head -c 60000 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" = "1" ]; then exit 1; fi
+          echo "changes=$([ "$code" = "2" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Guard plan against destructive actions
+        if: env.RUN == 'true' && steps.plan.outputs.changes == 'true'
+        working-directory: deployment/terraform/single-project
+        env:
+          TF_ALLOW_DESTROY: ${{ vars.TF_ALLOW_DESTROY }}
+        run: |
+          terraform show -json tfplan > plan.json
+          python3 ../../ci/guard_terraform_plan.py plan.json
+
+      - name: Verify Reasoning Engine pointer consistency
+        if: env.RUN == 'true'
+        run: |
+          python3 deployment/ci/check_engine_consistency.py \
+            --tfvars deployment/terraform/single-project/vars/env.tfvars \
+            --metadata agents/starter_agent/deployment_metadata.json \
+            --require-state
+
+      - name: terraform validate (github stack)
+        if: env.RUN == 'true'
+        working-directory: deployment/terraform/github
+        run: |
+          terraform init -backend=false -input=false -no-color
+          terraform validate -no-color
+
+  tests:
+    name: tests
+    permissions:
+      contents: read
+      id-token: write
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUN: ${{ needs.changes.outputs.agent == 'true' || needs.changes.outputs.workflows == 'true' }}
+      GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID || 'your-gcp-project-id' }}
+      GOOGLE_CLOUD_LOCATION: global
+      GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
+      APP_BQ_DATASET: ${{ vars.APP_BQ_DATASET || 'agent_data_sharing' }}
+      APP_BQ_LOCATION: ${{ vars.GCP_REGION || 'us-central1' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Nothing relevant changed
+        if: env.RUN != 'true'
+        run: echo "No agent/workflow changes in this PR - tests skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Authenticate to Google Cloud (CI Read-Only Identity)
+        if: env.RUN == 'true'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_CI_SERVICE_ACCOUNT || vars.CI_SERVICE_ACCOUNT_EMAIL }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        if: env.RUN == 'true'
+
+      - name: Load external API keys from Secret Manager (with secret masking)
+        if: env.RUN == 'true'
+        run: |
+          if gcloud secrets describe app-external-api-key --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+            EXT_KEY="$(gcloud secrets versions access latest --secret=app-external-api-key --project="${GCP_PROJECT_ID}")"
+            echo "::add-mask::${EXT_KEY}"
+            echo "APP_EXTERNAL_API_KEY=${EXT_KEY}" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: env.RUN == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        if: env.RUN == 'true'
+
+      - name: Install dependencies
+        if: env.RUN == 'true'
+        run: uv sync
+
+      - name: Preflight BigQuery access check
+        if: env.RUN == 'true'
+        run: uv run python tests/ci/preflight_bq_access.py
+
+      - name: Run unit test suite
+        if: env.RUN == 'true'
+        run: uv run pytest tests/unit -v
+
+      - name: Run integration test suite
+        if: env.RUN == 'true'
+        run: uv run pytest tests/integration -v
+
+  evals:
+    name: evals
+    permissions:
+      contents: read
+      id-token: write
+    needs: [changes, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RUN: ${{ needs.changes.outputs.agent == 'true' || needs.changes.outputs.workflows == 'true' }}
+      GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID || 'your-gcp-project-id' }}
+      GOOGLE_CLOUD_LOCATION: global
+      GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
+      APP_BQ_DATASET: ${{ vars.APP_BQ_DATASET || 'agent_data_sharing' }}
+      APP_BQ_LOCATION: ${{ vars.GCP_REGION || 'us-central1' }}
+      EVAL_MIN_MEAN_RESPONSE_QUALITY: ${{ vars.EVAL_MIN_MEAN_RESPONSE_QUALITY || '3.5' }}
+      EVAL_MIN_CASE_RESPONSE_QUALITY: ${{ vars.EVAL_MIN_CASE_RESPONSE_QUALITY || '2.0' }}
+      EVAL_MIN_TOOL_GROUNDING_RATE: ${{ vars.EVAL_MIN_TOOL_GROUNDING_RATE || '1.0' }}
+      EVAL_MIN_POLICY_COMPLIANCE_RATE: ${{ vars.EVAL_MIN_POLICY_COMPLIANCE_RATE || '1.0' }}
+      EVAL_MAX_ERRORED_CASES: ${{ vars.EVAL_MAX_ERRORED_CASES || '0' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Nothing relevant changed
+        if: env.RUN != 'true'
+        run: echo "No agent/workflow changes in this PR - evals skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Authenticate to Google Cloud (CI Read-Only Identity)
+        if: env.RUN == 'true'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_CI_SERVICE_ACCOUNT || vars.CI_SERVICE_ACCOUNT_EMAIL }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: env.RUN == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        if: env.RUN == 'true'
+
+      - name: Install dependencies (with eval extras)
+        if: env.RUN == 'true'
+        run: uv sync --extra eval
+
+      - name: Run agent evaluations (agents-cli eval run)
+        if: env.RUN == 'true'
+        run: |
+          mkdir -p artifacts/grade_results
+          uvx google-agents-cli@${AGENTS_CLI_VERSION} eval run \
+            --output artifacts/grade_results \
+            --concurrency 4
+
+      - name: Enforce quality and release thresholds
+        if: env.RUN == 'true'
+        run: python tests/eval/check_thresholds.py --results-dir artifacts/grade_results
+
+      - name: Upload evaluation artifacts
+        if: env.RUN == 'true' && always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-evals-pr-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: |
+            artifacts/grade_results/
+            artifacts/traces/
+          if-no-files-found: warn
+          retention-days: 30
+
+  frontend-build:
+    name: frontend-build
+    permissions:
+      contents: read
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUN: ${{ needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflows == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Nothing relevant changed
+        if: env.RUN != 'true'
+        run: echo "No frontend or workflow changes in this PR - frontend-build skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Docker build frontend image
+        if: env.RUN == 'true'
+        run: docker build --pull -t my-agent-frontend:pr frontend/
+
+      - name: Smoke check container embeddability and headers
+        if: env.RUN == 'true'
+        run: |
+          set -euo pipefail
+          cid=$(docker run -d --rm -p 8080:8080 my-agent-frontend:pr)
+          trap 'docker logs "$cid" | tail -20; docker stop "$cid" >/dev/null' EXIT
+          for i in $(seq 1 20); do curl -fsS -o /dev/null http://localhost:8080/ && break; sleep 1; done
+          headers=$(curl -fsS -D - -o /tmp/index.html http://localhost:8080/)
+          echo "$headers" | head -1
+          if echo "$headers" | grep -qi '^x-frame-options'; then
+            echo "::error::frontend sends X-Frame-Options; host agentic canvas cannot embed it." ; exit 1
+          fi
+          grep -q "agent_action" /tmp/index.html || { echo "::error::index.html missing postMessage bridge contract"; exit 1; }
+          {
+            echo "## frontend image verification"
+            echo "- Container built and verified at \`${GITHUB_SHA}\`: serves / with embeddable headers (no X-Frame-Options)."
+          } >> "$GITHUB_STEP_SUMMARY"

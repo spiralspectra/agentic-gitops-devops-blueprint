@@ -1,0 +1,324 @@
+name: Project Board Sync
+
+on:
+  issues:
+    types: [opened, reopened, assigned, closed]
+  create:
+  pull_request:
+    types: [opened, reopened, edited, ready_for_review, converted_to_draft, closed]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to sync on Project board (e.g. 10)"
+        required: true
+        type: string
+      target_status:
+        description: "Target Status column on Project board"
+        required: true
+        type: choice
+        default: "In Progress"
+        options:
+          - "Backlog"
+          - "Blocked"
+          - "Ready (Pick Next)"
+          - "In Progress"
+          - "In Review (PR Open)"
+          - "Done"
+
+concurrency:
+  group: project-board-sync-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  sync-project-card:
+    name: sync-project-card
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_EVENT_NAME: ${{ github.event_name }}
+      GITHUB_EVENT_PATH: ${{ github.event_path }}
+      PROJECT_ORG: ${{ vars.PROJECT_ORG || 'your-org' }}
+      PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER || '1' }}
+    steps:
+      - name: Sync Issue & PR lifecycle state to Project Board
+        run: |
+          python3 - << 'PYEOF'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.error
+          import urllib.request
+
+          TOKEN = os.environ.get("GH_TOKEN", "").strip()
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          OWNER, REPO_NAME = REPO.split("/", 1)
+          EVENT_NAME = os.environ["GITHUB_EVENT_NAME"]
+          EVENT_PATH = os.environ["GITHUB_EVENT_PATH"]
+          ORG = os.environ["PROJECT_ORG"]
+          PROJECT_NUM_STR = os.environ.get("PROJECT_NUMBER", "1").strip()
+          PROJECT_NUM = int(PROJECT_NUM_STR) if PROJECT_NUM_STR.isdigit() else 1
+          SUMMARY_PATH = os.environ.get("GITHUB_STEP_SUMMARY")
+
+          if not TOKEN:
+              print("::warning::PROJECT_TOKEN secret is not configured; skipping Project board sync.")
+              sys.exit(0)
+
+          with open(EVENT_PATH, encoding="utf-8") as f:
+              event = json.load(f)
+
+          def graphql(query: str, variables: dict | None = None) -> dict:
+              payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
+              req = urllib.request.Request(
+                  "https://api.github.com/graphql",
+                  data=payload,
+                  headers={
+                      "Authorization": f"Bearer {TOKEN}",
+                      "Content-Type": "application/json",
+                      "User-Agent": "agentic-project-board-sync",
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  body = json.loads(resp.read().decode("utf-8"))
+              if body.get("errors"):
+                  raise RuntimeError(f"GraphQL errors: {body['errors']}")
+              return body["data"]
+
+          def extract_issue_numbers_from_pr(pr: dict) -> list[int]:
+              nums: list[int] = []
+              body = pr.get("body") or ""
+              title = pr.get("title") or ""
+              head_ref = (pr.get("head") or {}).get("ref") or ""
+
+              # 1. Closing keywords: Fixes #10, Closes #10, Resolves #10
+              for m in re.finditer(
+                  r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+(?:[\w.-]+/[\w.-]+)?#(\d+)\b",
+                  body,
+              ):
+                  nums.append(int(m.group(1)))
+
+              # 2. Branch name convention: feat/issue-10, feat/10-slug, wt-10, fix/10
+              for m in re.finditer(
+                  r"(?i)(?:^|/|-)(?:issue-|wt-|feat[-/]|fix[-/]|chore[-/]|docs[-/])?(\d+)(?=-|$)",
+                  head_ref,
+              ):
+                  nums.append(int(m.group(1)))
+
+              # 3. Fallback: #N in PR title
+              if not nums:
+                  for m in re.finditer(r"#(\d+)\b", title):
+                      nums.append(int(m.group(1)))
+
+              seen: set[int] = set()
+              return [n for n in nums if not (n in seen or seen.add(n))]
+
+          def extract_issue_numbers_from_branch(ref: str) -> list[int]:
+              nums: list[int] = []
+              for m in re.finditer(
+                  r"(?i)(?:issue-|wt-|(?:^|/)(?:feat|fix|chore|docs|refactor)[-/])(\d+)\b",
+                  ref,
+              ):
+                  nums.append(int(m.group(1)))
+              seen: set[int] = set()
+              return [n for n in nums if not (n in seen or seen.add(n))]
+
+          target_issues: list[int] = []
+          target_status: str | None = None
+          allowed_prior: set[str | None] | None = None
+          action = event.get("action")
+
+          if EVENT_NAME == "workflow_dispatch":
+              inputs = event.get("inputs") or {}
+              raw_num = str(inputs.get("issue_number", "")).strip().lstrip("#")
+              if raw_num.isdigit():
+                  target_issues = [int(raw_num)]
+                  target_status = inputs.get("target_status") or "In Progress"
+                  allowed_prior = None
+
+          elif EVENT_NAME == "issues":
+              iss = event.get("issue") or {}
+              inum = iss.get("number")
+              if inum:
+                  target_issues = [int(inum)]
+                  if action in ("opened", "reopened"):
+                      target_status = "Backlog"
+                      allowed_prior = {None, "Done"}
+                  elif action == "assigned":
+                      target_status = "In Progress"
+                      allowed_prior = {None, "Backlog", "Ready (Pick Next)", "Blocked"}
+                  elif action == "closed":
+                      target_status = "Done"
+                      allowed_prior = None
+
+          elif EVENT_NAME == "create":
+              if event.get("ref_type") == "branch":
+                  ref = event.get("ref") or ""
+                  if ref != "main":
+                      target_issues = extract_issue_numbers_from_branch(ref)
+                      target_status = "In Progress"
+                      allowed_prior = {None, "Backlog", "Ready (Pick Next)", "Blocked"}
+
+          elif EVENT_NAME == "pull_request":
+              pr = event.get("pull_request") or {}
+              target_issues = extract_issue_numbers_from_pr(pr)
+              is_draft = bool(pr.get("draft"))
+              state = pr.get("state")
+              merged = bool(pr.get("merged"))
+
+              if action == "closed" and merged:
+                  target_status = "Done"
+                  allowed_prior = None
+              elif state == "open" and is_draft:
+                  target_status = "In Progress"
+                  allowed_prior = {None, "Backlog", "Ready (Pick Next)", "Blocked", "In Review (PR Open)"}
+              elif state == "open" and not is_draft:
+                  target_status = "In Review (PR Open)"
+                  allowed_prior = {None, "Backlog", "Ready (Pick Next)", "Blocked", "In Progress"}
+
+          if not target_issues or not target_status:
+              print(f"No actionable Project board card transition for event={EVENT_NAME} action={action}.")
+              sys.exit(0)
+
+          proj_data = graphql(
+              """
+              query($org: String!, $num: Int!) {
+                organization(login: $org) {
+                  projectV2(number: $num) {
+                    id
+                    url
+                    field(name: "Status") {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        options { id name }
+                      }
+                    }
+                  }
+                }
+              }
+              """,
+              {"org": ORG, "num": PROJECT_NUM},
+          )
+          org_obj = proj_data.get("organization") or {}
+          project = org_obj.get("projectV2")
+          if not project:
+              print(f"::warning::Could not find Project #{PROJECT_NUM} in org {ORG}.")
+              sys.exit(0)
+
+          project_id = project["id"]
+          project_url = project["url"]
+          status_field = project["field"]
+          status_field_id = status_field["id"]
+          options_by_name = {o["name"]: o["id"] for o in status_field["options"]}
+
+          if target_status not in options_by_name:
+              raise RuntimeError(
+                  f"Target status {target_status!r} not found in Project #{PROJECT_NUM} options: {list(options_by_name)}"
+              )
+          target_option_id = options_by_name[target_status]
+
+          rows: list[str] = []
+          for inum in target_issues:
+              try:
+                  iss_data = graphql(
+                      """
+                      query($owner: String!, $repo: String!, $num: Int!) {
+                        repository(owner: $owner, name: $repo) {
+                          issue(number: $num) {
+                            id
+                            number
+                            title
+                            url
+                            projectItems(first: 20) {
+                              nodes {
+                                id
+                                project { id }
+                                fieldValueByName(name: "Status") {
+                                  ... on ProjectV2ItemFieldSingleSelectValue { name }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                      """,
+                      {"owner": OWNER, "repo": REPO_NAME, "num": inum},
+                  )
+                  issue_node = (iss_data.get("repository") or {}).get("issue")
+                  if not issue_node:
+                      print(f"Skipping #{inum}: not a valid repository issue.")
+                      continue
+              except Exception as exc:
+                  print(f"Skipping #{inum}: {exc}")
+                  continue
+
+              existing_item = None
+              for pitem in (issue_node.get("projectItems") or {}).get("nodes") or []:
+                  if (pitem.get("project") or {}).get("id") == project_id:
+                      existing_item = pitem
+                      break
+
+              if existing_item:
+                  item_id = existing_item["id"]
+                  prev_status = (existing_item.get("fieldValueByName") or {}).get("name")
+              else:
+                  added = graphql(
+                      """
+                      mutation($projectId: ID!, $contentId: ID!) {
+                        addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                          item { id }
+                        }
+                      }
+                      """,
+                      {"projectId": project_id, "contentId": issue_node["id"]},
+                  )
+                  item_id = added["addProjectV2ItemById"]["item"]["id"]
+                  prev_status = None
+
+              if allowed_prior is not None and prev_status not in allowed_prior:
+                  msg = f"#{inum}: kept existing status {prev_status!r} (target {target_status!r} skipped)"
+                  print(msg)
+                  rows.append(f"| [#{inum}]({issue_node['url']}) | `{prev_status}` | `{prev_status}` (unchanged) |")
+                  continue
+
+              graphql(
+                  """
+                  mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                    updateProjectV2ItemFieldValue(input: {
+                      projectId: $projectId,
+                      itemId: $itemId,
+                      fieldId: $fieldId,
+                      value: { singleSelectOptionId: $optionId }
+                    }) {
+                      projectV2Item { id }
+                    }
+                  }
+                  """,
+                  {
+                      "projectId": project_id,
+                      "itemId": item_id,
+                      "fieldId": status_field_id,
+                      "optionId": target_option_id,
+                  },
+              )
+              print(f"Synced #{inum} ({issue_node['title']}): {prev_status!r} -> {target_status!r}")
+              rows.append(
+                  f"| [#{inum}]({issue_node['url']}) | `{prev_status or '(not on board)'}` | **`{target_status}`** |"
+              )
+
+          if SUMMARY_PATH and rows:
+              with open(SUMMARY_PATH, "a", encoding="utf-8") as sf:
+                  sf.write(f"### Project #{PROJECT_NUM} Automated Board Sync\n\n")
+                  sf.write(f"- **Board:** [{project_url}]({project_url})\n")
+                  sf.write(f"- **Trigger:** `{EVENT_NAME}` (`{action or 'n/a'}`)\n\n")
+                  sf.write("| Issue | Previous Status | New Status |\n")
+                  sf.write("| :--- | :--- | :--- |\n")
+                  sf.write("\n".join(rows) + "\n")
+          PYEOF

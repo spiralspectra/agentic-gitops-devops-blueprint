@@ -1,0 +1,80 @@
+# CodeMender - per-repository configuration.
+#
+# Run through the wrapper, from the repository root:
+#   ./codemender/cm.sh health --strict && ./codemender/cm.sh init --verify
+#   ./codemender/cm.sh find agents/ --quick
+#
+# CodeMender is NOT part of the CI/CD pipeline for this repository: it is run on demand from an
+# engineer's terminal. See codemender/README.md for the runbook.
+
+server: {}
+
+team_id: "agentic-blueprint-team"
+
+scan:
+  extensions:
+    include:
+      - .py
+      - .js
+      - .ts
+      - .tsx
+      - .html
+      - .sh
+      - .sql
+      - .tf
+      - .tfvars
+      - .hcl
+      - .yaml
+      - .yml
+      - .toml
+      - .json
+      - .conf
+    exclude:
+      - .min.js
+      - .lock
+      - .terraform.lock.hcl
+  exclude_dirs:
+    - node_modules
+    - vendor
+    - dist
+    - /target
+    - /build
+    - .venv
+    - __pycache__
+    - .pytest_cache
+    - .ruff_cache
+    - .terraform
+    - /codemender
+    - /docs
+    - /tests/load_test
+    - /tests/eval/datasets
+  max_file_size_kb: 2048
+  incremental: true
+
+project_paths: []
+
+output:
+  format: table
+
+tools:
+  confirm_commands: true
+  confirm_writes: true
+
+vcs:
+  type: "git"
+
+build:
+  command: "bash ./codemender/build.sh"
+
+sandbox:
+  enabled: true
+  mounts:
+    target_dir: "."
+  network:
+    profile: "permissive-closed"
+
+security:
+  protected_files:
+    - "~/.ssh/*"
+    - "~/.config/gcloud/*"
+    - "~/.codemender/*"

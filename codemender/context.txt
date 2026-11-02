@@ -1,0 +1,21 @@
+Application: Enterprise AI Agent Service, a Google ADK agent
+served from Vertex AI Reasoning Engine and surfaced to authorized users.
+Users are authenticated by Google Cloud IAM / IAP; prompts are untrusted input.
+
+Trust boundary: user prompt -> model -> tool arguments -> BigQuery / external APIs.
+Tools run SQL against BigQuery datasets as the caller; BigQuery row-level security
+is the authoritative data-access control. SQL execution must stay read-only and single-statement;
+all tools must keep user-controlled values in query parameters. Never widen RLS, never bypass
+caller identity, and never log PII, credentials, or API keys.
+
+Front door: frontend is a static web application on Cloud Run behind an HTTPS load balancer
+with Cloud Armor and IAP. postMessage target origins, CSP frame-ancestors, and response headers
+are security controls; the page must not fetch data itself directly without passing through
+agent authentication.
+
+Delivery: GitHub Actions authenticates with Workload Identity Federation (no long-lived keys);
+CI service account is read-only, Deployer service account applies Terraform and releases.
+Treat IAM bindings, Cloud Armor / IAP configuration, and secret handling in deployment/** as in scope.
+
+Out of scope / expected: deliberate absence of X-Frame-Options on frontend canvas (must be embeddable);
+CI runs integration tests with mock or test dataset credentials; tests/ and docs/ are not production runtime code.
