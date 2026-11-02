@@ -274,6 +274,8 @@ bash ./codemender/build.sh
 
 ---
 
-## License
+## License & Attribution
 
-Copyright 2026 Google LLC. Licensed under the Apache License, Version 2.0.
+Copyright 2026 The Project Contributors. Licensed under the Apache License, Version 2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) for details.
+
+Original and continuing authors are credited in [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
