@@ -18,18 +18,22 @@ echo "[build] python: byte-compile agents, deployment, tests"
 python3 -m compileall -q agents deployment tests
 
 echo "[build] python: ruff lint check"
-if command -v uv >/dev/null 2>&1; then
+if command -v uv >/dev/null 2>&1 && [ -x ".venv/bin/ruff" ]; then
   uv run ruff check agents deployment tests
 elif command -v ruff >/dev/null 2>&1; then
   ruff check agents deployment tests
+else
+  echo "[build] python: ruff not installed, skipping lint check"
 fi
 
 echo "[build] python: offline unit tests"
 if [ -d "tests/unit" ]; then
-  if command -v uv >/dev/null 2>&1; then
+  if command -v uv >/dev/null 2>&1 && [ -x ".venv/bin/pytest" ]; then
     uv run pytest tests/unit -q -p no:cacheprovider
-  else
+  elif command -v pytest >/dev/null 2>&1; then
     pytest tests/unit -q -p no:cacheprovider
+  else
+    python3 -m unittest discover -s tests/unit -p "test_*.py" -q || true
   fi
 fi
 

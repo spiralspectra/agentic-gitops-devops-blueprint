@@ -108,20 +108,23 @@ jobs:
 
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
 
+      - name: Install dependencies
+        run: uv sync --all-extras
+
       - name: Run Codemender offline build & test suite
         run: bash ./codemender/build.sh
 
       - name: Verify Terraform configuration & Reasoning Engine pointer consistency
         run: |
-          python3 deployment/ci/check_engine_consistency.py \
+          uv run python deployment/ci/check_engine_consistency.py \
             --tfvars deployment/terraform/single-project/vars/env.tfvars \
             --metadata agents/starter_agent/deployment_metadata.json
 
       - name: Run offline quality and safety evaluation gate
         run: |
           mkdir -p artifacts/grade_results
-          python3 tests/eval/response_quality.py --mock --output artifacts/grade_results/eval_results.json
-          python3 tests/eval/check_thresholds.py --results-dir artifacts/grade_results
+          uv run python tests/eval/response_quality.py --mock --output artifacts/grade_results/eval_results.json
+          uv run python tests/eval/check_thresholds.py --results-dir artifacts/grade_results
 
   terraform-apply:
     name: terraform-apply

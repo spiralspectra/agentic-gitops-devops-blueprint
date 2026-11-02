@@ -31,10 +31,20 @@ jobs:
       terraform: ${{ steps.filter.outputs.terraform }}
       frontend: ${{ steps.filter.outputs.frontend }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      gcp_configured: ${{ steps.check-wif.outputs.configured }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - id: check-wif
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
       - id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
@@ -104,7 +114,7 @@ jobs:
         run: echo "No agent/infra/workflow changes in this PR - terraform-plan skipped." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticate to Google Cloud (CI Read-Only Identity)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -122,14 +132,14 @@ jobs:
         run: terraform fmt -check -recursive -diff deployment/terraform
 
       - name: terraform init & validate (single-project, offline template mode)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured != 'true'
         working-directory: deployment/terraform/single-project
         run: |
           terraform init -backend=false -input=false -no-color
           terraform validate -no-color
 
       - name: Report offline terraform validation
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured != 'true'
         run: |
           {
             echo "## terraform validation (Template Mode - Offline)"
@@ -138,24 +148,24 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify Reasoning Engine pointer consistency (offline template mode)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured != 'true'
         run: |
           python3 deployment/ci/check_engine_consistency.py \
             --tfvars deployment/terraform/single-project/vars/env.tfvars \
             --metadata agents/starter_agent/deployment_metadata.json
 
       - name: terraform init (single-project, live)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         working-directory: deployment/terraform/single-project
         run: terraform init -input=false -no-color
 
       - name: terraform validate (single-project, live)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         working-directory: deployment/terraform/single-project
         run: terraform validate -no-color
 
       - name: terraform plan (single-project, read-only)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         id: plan
         working-directory: deployment/terraform/single-project
         run: |
@@ -177,7 +187,7 @@ jobs:
           echo "changes=$([ "$code" = "2" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Guard plan against destructive actions
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && steps.plan.outputs.changes == 'true'
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true' && steps.plan.outputs.changes == 'true'
         working-directory: deployment/terraform/single-project
         env:
           TF_ALLOW_DESTROY: ${{ vars.TF_ALLOW_DESTROY }}
@@ -186,7 +196,7 @@ jobs:
           python3 ../../ci/guard_terraform_plan.py plan.json
 
       - name: Verify Reasoning Engine pointer consistency (live)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         run: |
           python3 deployment/ci/check_engine_consistency.py \
             --tfvars deployment/terraform/single-project/vars/env.tfvars \
@@ -225,7 +235,7 @@ jobs:
         run: echo "No agent/workflow changes in this PR - tests skipped." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticate to Google Cloud (CI Read-Only Identity)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -233,10 +243,10 @@ jobs:
           project_id: ${{ env.GCP_PROJECT_ID }}
 
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
 
       - name: Load external API keys from Secret Manager (with secret masking)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         run: |
           SECRET_NAME="${PROJECT_NAME:-my-agent-service}-api-key"
           if gcloud secrets describe "${SECRET_NAME}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
@@ -258,7 +268,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Preflight BigQuery access check
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         run: uv run python tests/ci/preflight_bq_access.py
 
       - name: Run unit test suite
@@ -304,7 +314,7 @@ jobs:
         run: echo "No agent/workflow changes in this PR - evals skipped." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticate to Google Cloud (CI Read-Only Identity)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -324,7 +334,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run agent evaluations (live agents-cli eval run)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
         run: |
           mkdir -p artifacts/grade_results
           uvx google-agents-cli@${AGENTS_CLI_VERSION} eval run \
@@ -332,7 +342,7 @@ jobs:
             --concurrency 4
 
       - name: Run agent evaluations (offline template mode)
-        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured != 'true'
         run: |
           mkdir -p artifacts/grade_results
           uv run python tests/eval/response_quality.py --mock --output artifacts/grade_results/eval_results.json
