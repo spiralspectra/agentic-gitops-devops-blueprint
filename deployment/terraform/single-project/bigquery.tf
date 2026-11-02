@@ -23,6 +23,10 @@ resource "google_bigquery_dataset" "telemetry" {
     app = var.project_name
   }
 
+  lifecycle {
+    prevent_destroy = true
+  }
+
   depends_on = [google_project_service.services]
 }
 

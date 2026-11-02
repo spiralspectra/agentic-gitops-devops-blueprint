@@ -2,6 +2,7 @@
   "project": "your-gcp-project-id",
   "location": "us-central1",
   "reasoning_engine_id": "0000000000000000000",
+  "remote_agent_runtime_id": "0000000000000000000",
   "agent_name": "starter_agent",
   "model_name": "gemini-2.5-pro",
   "version": "1.0.0"

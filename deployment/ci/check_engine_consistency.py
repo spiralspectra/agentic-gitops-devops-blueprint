@@ -39,7 +39,9 @@ def engine_id_from_metadata(path: str) -> str:
         return ""
     with open(path, encoding="utf-8") as f:
         meta = json.load(f)
-    engine = (meta.get("remote_agent_runtime_id") or "").rstrip("/")
+    engine = (meta.get("remote_agent_runtime_id") or meta.get("reasoning_engine_id") or "").rstrip(
+        "/"
+    )
     if not engine:
         return ""
     return engine.split("/")[-1]
@@ -71,12 +73,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"metadata remote_agent_runtime_id: {metadata_id or '(not set)'}")
     print(f"state    reasoning_engine_name  : {state_id or '(not available)'}")
 
-    # If neither is set yet (bootstrap phase), pass cleanly
-    if not tfvars_id and not metadata_id and not state_id:
+    # If neither is set yet (bootstrap phase) and state is not required, pass cleanly
+    if not tfvars_id and not metadata_id and not state_id and not args.require_state:
         print("INFO: Engine IDs not yet configured. Skipping check during initial setup.")
         return 0
 
     problems = []
+    if args.require_state and not state_id:
+        problems.append("--require-state requested but --state-engine is empty or not provided")
+
     if tfvars_id and metadata_id and tfvars_id != metadata_id:
         problems.append(
             f"deployment_metadata.json ({metadata_id}) and env.tfvars ({tfvars_id}) name different engines"
@@ -85,10 +90,6 @@ def main(argv: list[str] | None = None) -> int:
         problems.append(
             f"Terraform state ({state_id}) names a different engine than env.tfvars ({tfvars_id})"
         )
-
-    if args.require_state and not state_id and (tfvars_id or metadata_id):
-        # Only warn if state-engine was explicitly empty but required in a non-state context
-        print("INFO: --require-state requested, state engine not provided via CLI.")
 
     if problems:
         for p in problems:

@@ -180,3 +180,42 @@ def test_engine_consistency_detects_mismatch(tmp_path: Path):
 
     rc = check_engine_consistency.main(["--tfvars", str(tfvars), "--metadata", str(metadata)])
     assert rc == 1
+
+
+def test_engine_consistency_requires_state_fails_when_empty(tmp_path: Path):
+    tfvars = tmp_path / "env.tfvars"
+    tfvars.write_text('reasoning_engine_id = "1234567890123456789"\n', encoding="utf-8")
+
+    metadata = tmp_path / "deployment_metadata.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "remote_agent_runtime_id": (
+                    "projects/123/locations/us-central1/reasoningEngines/1234567890123456789"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = check_engine_consistency.main(
+        ["--tfvars", str(tfvars), "--metadata", str(metadata), "--require-state"]
+    )
+    assert rc == 1
+
+
+def test_guard_blocks_all_protected_pipeline_iam_bindings():
+    for name in ["ci_wif_user", "deployer_wif_user", "ci_roles", "deployer_roles"]:
+        plan = {
+            "resource_changes": [
+                {
+                    "address": f"google_project_iam_member.{name}",
+                    "type": "google_project_iam_member",
+                    "name": name,
+                    "change": {"actions": ["delete"]},
+                }
+            ]
+        }
+        destructive = guard_terraform_plan.destructive_changes(plan)
+        assert len(destructive) == 1
+        assert destructive[0][0] == f"google_project_iam_member.{name}"

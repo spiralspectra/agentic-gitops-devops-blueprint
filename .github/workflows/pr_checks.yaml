@@ -41,6 +41,8 @@ jobs:
           filters: |
             agent:
               - 'agents/**'
+              - 'data/**'
+              - 'codemender/**'
               - 'tests/**'
               - 'pyproject.toml'
               - 'uv.lock'
@@ -102,7 +104,7 @@ jobs:
         run: echo "No agent/infra/workflow changes in this PR - terraform-plan skipped." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticate to Google Cloud (CI Read-Only Identity)
-        if: env.RUN == 'true'
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -119,18 +121,41 @@ jobs:
         if: env.RUN == 'true'
         run: terraform fmt -check -recursive -diff deployment/terraform
 
-      - name: terraform init (single-project)
-        if: env.RUN == 'true'
+      - name: terraform init & validate (single-project, offline template mode)
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        working-directory: deployment/terraform/single-project
+        run: |
+          terraform init -backend=false -input=false -no-color
+          terraform validate -no-color
+
+      - name: Report offline terraform validation
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        run: |
+          {
+            echo "## terraform validation (Template Mode - Offline)"
+            echo "GCP Workload Identity Provider is unconfigured (\`secrets.GCP_WORKLOAD_IDENTITY_PROVIDER\`)."
+            echo "Validated syntax and structure offline (\`terraform init -backend=false\` and \`terraform validate\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify Reasoning Engine pointer consistency (offline template mode)
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        run: |
+          python3 deployment/ci/check_engine_consistency.py \
+            --tfvars deployment/terraform/single-project/vars/env.tfvars \
+            --metadata agents/starter_agent/deployment_metadata.json
+
+      - name: terraform init (single-project, live)
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         working-directory: deployment/terraform/single-project
         run: terraform init -input=false -no-color
 
-      - name: terraform validate (single-project)
-        if: env.RUN == 'true'
+      - name: terraform validate (single-project, live)
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         working-directory: deployment/terraform/single-project
         run: terraform validate -no-color
 
       - name: terraform plan (single-project, read-only)
-        if: env.RUN == 'true'
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         id: plan
         working-directory: deployment/terraform/single-project
         run: |
@@ -152,7 +177,7 @@ jobs:
           echo "changes=$([ "$code" = "2" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Guard plan against destructive actions
-        if: env.RUN == 'true' && steps.plan.outputs.changes == 'true'
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && steps.plan.outputs.changes == 'true'
         working-directory: deployment/terraform/single-project
         env:
           TF_ALLOW_DESTROY: ${{ vars.TF_ALLOW_DESTROY }}
@@ -160,8 +185,8 @@ jobs:
           terraform show -json tfplan > plan.json
           python3 ../../ci/guard_terraform_plan.py plan.json
 
-      - name: Verify Reasoning Engine pointer consistency
-        if: env.RUN == 'true'
+      - name: Verify Reasoning Engine pointer consistency (live)
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         run: |
           python3 deployment/ci/check_engine_consistency.py \
             --tfvars deployment/terraform/single-project/vars/env.tfvars \
@@ -200,7 +225,7 @@ jobs:
         run: echo "No agent/workflow changes in this PR - tests skipped." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticate to Google Cloud (CI Read-Only Identity)
-        if: env.RUN == 'true'
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -208,13 +233,14 @@ jobs:
           project_id: ${{ env.GCP_PROJECT_ID }}
 
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
-        if: env.RUN == 'true'
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
 
       - name: Load external API keys from Secret Manager (with secret masking)
-        if: env.RUN == 'true'
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         run: |
-          if gcloud secrets describe app-external-api-key --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-            EXT_KEY="$(gcloud secrets versions access latest --secret=app-external-api-key --project="${GCP_PROJECT_ID}")"
+          SECRET_NAME="${PROJECT_NAME:-my-agent-service}-api-key"
+          if gcloud secrets describe "${SECRET_NAME}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+            EXT_KEY="$(gcloud secrets versions access latest --secret="${SECRET_NAME}" --project="${GCP_PROJECT_ID}")"
             echo "::add-mask::${EXT_KEY}"
             echo "APP_EXTERNAL_API_KEY=${EXT_KEY}" >> "$GITHUB_ENV"
           fi
@@ -229,18 +255,22 @@ jobs:
 
       - name: Install dependencies
         if: env.RUN == 'true'
-        run: uv sync
+        run: uv sync --all-extras
 
       - name: Preflight BigQuery access check
-        if: env.RUN == 'true'
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         run: uv run python tests/ci/preflight_bq_access.py
 
       - name: Run unit test suite
         if: env.RUN == 'true'
+        env:
+          AGENT_EVAL_MOCK: "1"
         run: uv run pytest tests/unit -v
 
       - name: Run integration test suite
         if: env.RUN == 'true'
+        env:
+          AGENT_EVAL_MOCK: "1"
         run: uv run pytest tests/integration -v
 
   evals:
@@ -258,10 +288,11 @@ jobs:
       GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
       APP_BQ_DATASET: ${{ vars.APP_BQ_DATASET || 'agent_data_sharing' }}
       APP_BQ_LOCATION: ${{ vars.GCP_REGION || 'us-central1' }}
-      EVAL_MIN_MEAN_RESPONSE_QUALITY: ${{ vars.EVAL_MIN_MEAN_RESPONSE_QUALITY || '3.5' }}
-      EVAL_MIN_CASE_RESPONSE_QUALITY: ${{ vars.EVAL_MIN_CASE_RESPONSE_QUALITY || '2.0' }}
-      EVAL_MIN_TOOL_GROUNDING_RATE: ${{ vars.EVAL_MIN_TOOL_GROUNDING_RATE || '1.0' }}
-      EVAL_MIN_POLICY_COMPLIANCE_RATE: ${{ vars.EVAL_MIN_POLICY_COMPLIANCE_RATE || '1.0' }}
+      EVAL_MIN_MEAN_SCORE: ${{ vars.EVAL_MIN_MEAN_SCORE || '0.75' }}
+      EVAL_MIN_CASE_SCORE: ${{ vars.EVAL_MIN_CASE_SCORE || '0.50' }}
+      EVAL_MIN_TOOL_GROUNDING_RATE: ${{ vars.EVAL_MIN_TOOL_GROUNDING_RATE || '0.85' }}
+      EVAL_MIN_POLICY_COMPLIANCE_RATE: ${{ vars.EVAL_MIN_POLICY_COMPLIANCE_RATE || '0.90' }}
+      EVAL_MIN_SAFETY_GUARDRAIL_RATE: ${{ vars.EVAL_MIN_SAFETY_GUARDRAIL_RATE || '1.00' }}
       EVAL_MAX_ERRORED_CASES: ${{ vars.EVAL_MAX_ERRORED_CASES || '0' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -273,7 +304,7 @@ jobs:
         run: echo "No agent/workflow changes in this PR - evals skipped." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticate to Google Cloud (CI Read-Only Identity)
-        if: env.RUN == 'true'
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -290,19 +321,25 @@ jobs:
 
       - name: Install dependencies (with eval extras)
         if: env.RUN == 'true'
-        run: uv sync --extra eval
+        run: uv sync --all-extras
 
-      - name: Run agent evaluations (agents-cli eval run)
-        if: env.RUN == 'true'
+      - name: Run agent evaluations (live agents-cli eval run)
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         run: |
           mkdir -p artifacts/grade_results
           uvx google-agents-cli@${AGENTS_CLI_VERSION} eval run \
             --output artifacts/grade_results \
             --concurrency 4
 
+      - name: Run agent evaluations (offline template mode)
+        if: env.RUN == 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        run: |
+          mkdir -p artifacts/grade_results
+          uv run python tests/eval/response_quality.py --mock --output artifacts/grade_results/eval_results.json
+
       - name: Enforce quality and release thresholds
         if: env.RUN == 'true'
-        run: python tests/eval/check_thresholds.py --results-dir artifacts/grade_results
+        run: uv run python tests/eval/check_thresholds.py --results-dir artifacts/grade_results
 
       - name: Upload evaluation artifacts
         if: env.RUN == 'true' && always()

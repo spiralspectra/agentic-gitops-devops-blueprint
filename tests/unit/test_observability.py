@@ -18,16 +18,7 @@ from __future__ import annotations
 
 import uuid
 
-
-def format_telemetry_event(session_id: str, query: str, duration_ms: float) -> dict:
-    """Formats structured telemetry log event for BigQuery / Cloud Logging."""
-    return {
-        "event_id": str(uuid.uuid4()),
-        "session_id": session_id,
-        "query_length": len(query),
-        "duration_ms": duration_ms,
-        "status": "success" if duration_ms < 5000.0 else "slow",
-    }
+from agents.starter_agent.app import format_telemetry_event
 
 
 def test_telemetry_formatting():

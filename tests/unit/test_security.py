@@ -16,22 +16,7 @@
 
 from __future__ import annotations
 
-import re
-
-SUSPICIOUS_PATTERNS = [
-    re.compile(r"ignore previous instructions", re.IGNORECASE),
-    re.compile(r"reveal (the )?system prompt", re.IGNORECASE),
-    re.compile(r"system\.root_password", re.IGNORECASE),
-    re.compile(r"drop table ", re.IGNORECASE),
-]
-
-
-def is_safe_input(user_query: str) -> bool:
-    """Evaluates whether an incoming query violates safety guardrails."""
-    for pattern in SUSPICIOUS_PATTERNS:
-        if pattern.search(user_query):
-            return False
-    return True
+from agents.starter_agent.app import is_safe_input
 
 
 def test_benign_queries_pass_guardrail():

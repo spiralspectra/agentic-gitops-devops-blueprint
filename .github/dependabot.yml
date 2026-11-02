@@ -24,7 +24,7 @@ updates:
       - dependency-name: "*"
 
   - package-ecosystem: "docker"
-    directory: "/frontend"
+    directory: "/agents/starter_agent"
     schedule:
       interval: "weekly"
     cooldown:
@@ -34,16 +34,6 @@ updates:
       - dependency-name: "*"
 
   - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 0
-    ignore:
-      - dependency-name: "*"
-
-  - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"

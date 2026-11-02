@@ -31,5 +31,9 @@ resource "google_storage_bucket" "agent_artifacts" {
     }
   }
 
+  lifecycle {
+    prevent_destroy = true
+  }
+
   depends_on = [google_project_service.services]
 }

@@ -201,7 +201,7 @@ agentic-gitops-devops-blueprint/
 │   │   ├── eval_config.yaml            # Quality, safety, and latency thresholds
 │   │   └── response_quality.py         # Judge execution harness with model fallback
 │   ├── load_test/                      # Locust concurrent load testing suite
-│   │   ├── locustfile.py
+│   │   ├── README.md
 │   │   └── load_test.py
 │   ├── unit/                           # Security, telemetry, and guardrail unit tests
 │   │   ├── test_check_thresholds.py

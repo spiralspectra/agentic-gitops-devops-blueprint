@@ -59,19 +59,25 @@ class Thresholds:
                 data = yaml.safe_load(f) or {}
                 cfg_thresholds = data.get("thresholds", {})
 
+        min_mean_raw = env.get("EVAL_MIN_MEAN_SCORE") or env.get("EVAL_MIN_MEAN_RESPONSE_QUALITY")
+        if min_mean_raw is not None:
+            min_mean = float(min_mean_raw)
+            if min_mean > 1.0:
+                min_mean = min_mean / 5.0
+        else:
+            min_mean = float(cfg_thresholds.get("min_mean_score", cls.min_mean_score))
+
+        min_case_raw = env.get("EVAL_MIN_CASE_SCORE") or env.get("EVAL_MIN_CASE_RESPONSE_QUALITY")
+        if min_case_raw is not None:
+            min_case = float(min_case_raw)
+            if min_case > 1.0:
+                min_case = min_case / 5.0
+        else:
+            min_case = float(cfg_thresholds.get("min_case_score", cls.min_case_score))
+
         return cls(
-            min_mean_score=float(
-                env.get(
-                    "EVAL_MIN_MEAN_SCORE",
-                    cfg_thresholds.get("min_mean_score", cls.min_mean_score),
-                )
-            ),
-            min_case_score=float(
-                env.get(
-                    "EVAL_MIN_CASE_SCORE",
-                    cfg_thresholds.get("min_case_score", cls.min_case_score),
-                )
-            ),
+            min_mean_score=min_mean,
+            min_case_score=min_case,
             min_tool_grounding_rate=float(
                 env.get(
                     "EVAL_MIN_TOOL_GROUNDING_RATE",
@@ -116,7 +122,11 @@ def find_latest_results(results_dir: str | Path) -> Path:
     pattern = str(Path(results_dir) / "results_*.json")
     files = sorted(glob.glob(pattern), key=os.path.getmtime)
     if not files:
-        raise FileNotFoundError(f"No results_*.json found in {results_dir}")
+        fallback_pattern = str(Path(results_dir) / "*.json")
+        fallback_files = sorted(glob.glob(fallback_pattern), key=os.path.getmtime)
+        if fallback_files:
+            return Path(fallback_files[-1])
+        raise FileNotFoundError(f"No results_*.json or *.json found in {results_dir}")
     return Path(files[-1])
 
 
@@ -351,6 +361,9 @@ def main() -> int:
             res_path = find_latest_results(args.results_dir)
     except FileNotFoundError as e:
         print(f"Notice: {e}. Executing fallback offline eval suite...")
+        repo_root = Path(__file__).resolve().parents[2]
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
         from tests.eval.response_quality import run_eval_suite
 
         mock_data = run_eval_suite()

@@ -51,3 +51,19 @@ output "artifacts_bucket_name" {
   description = "Cloud Storage bucket name for agent artifacts and staging."
   value       = google_storage_bucket.agent_artifacts.name
 }
+
+output "reasoning_engine_name" {
+  description = "Resource name of the Vertex AI Reasoning Engine."
+  value       = google_vertex_ai_reasoning_engine.app.name
+}
+
+output "reasoning_engine_id" {
+  description = "Resource ID of the Vertex AI Reasoning Engine."
+  value       = google_vertex_ai_reasoning_engine.app.id
+}
+
+output "logs_bucket_name" {
+  description = "Cloud Storage bucket name for telemetry logs."
+  value       = google_storage_bucket.telemetry_logs.name
+}
+

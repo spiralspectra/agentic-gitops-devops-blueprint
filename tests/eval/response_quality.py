@@ -224,8 +224,12 @@ def run_eval_suite(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run LLM-as-a-judge response quality evaluation.")
+    parser.add_argument("--mock", action="store_true", help="Run evaluation in mock mode.")
     parser.add_argument("--output", "-o", help="Optional path to write output JSON results.")
     args = parser.parse_args(argv)
+
+    if args.mock:
+        os.environ["AGENT_EVAL_MOCK"] = "1"
 
     results = run_eval_suite()
     if args.output:

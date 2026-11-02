@@ -56,10 +56,80 @@ resource "google_logging_project_sink" "genai_inference_sink" {
   depends_on = [google_bigquery_dataset.telemetry]
 }
 
-resource "google_project_iam_member" "sink_bq_editor" {
-  project = var.project_id
-  role    = "roles/bigquery.dataEditor"
-  member  = google_logging_project_sink.genai_inference_sink.writer_identity
+resource "google_bigquery_dataset_iam_member" "sink_bq_editor" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.telemetry.dataset_id
+  role       = "roles/bigquery.dataEditor"
+  member     = google_logging_project_sink.genai_inference_sink.writer_identity
+}
+
+# Backing seed table for standardized operational telemetry events
+resource "google_bigquery_table" "genai_telemetry_events" {
+  dataset_id          = google_bigquery_dataset.telemetry.dataset_id
+  table_id            = "genai_telemetry_events"
+  project             = var.project_id
+  description         = "Backing seed table for standardized GenAI operational telemetry events."
+  deletion_protection = false
+
+  time_partitioning {
+    type  = "DAY"
+    field = "timestamp"
+  }
+
+  schema = jsonencode([
+    {
+      name = "timestamp"
+      type = "TIMESTAMP"
+      mode = "REQUIRED"
+    },
+    {
+      name = "log_name"
+      type = "STRING"
+      mode = "NULLABLE"
+    },
+    {
+      name = "trace_id"
+      type = "STRING"
+      mode = "NULLABLE"
+    },
+    {
+      name = "span_id"
+      type = "STRING"
+      mode = "NULLABLE"
+    },
+    {
+      name = "model"
+      type = "STRING"
+      mode = "NULLABLE"
+    },
+    {
+      name = "prompt_tokens"
+      type = "INT64"
+      mode = "NULLABLE"
+    },
+    {
+      name = "completion_tokens"
+      type = "INT64"
+      mode = "NULLABLE"
+    },
+    {
+      name = "latency_ms"
+      type = "FLOAT"
+      mode = "NULLABLE"
+    },
+    {
+      name = "status"
+      type = "STRING"
+      mode = "NULLABLE"
+    },
+    {
+      name = "error_message"
+      type = "STRING"
+      mode = "NULLABLE"
+    }
+  ])
+
+  depends_on = [google_bigquery_dataset.telemetry]
 }
 
 # BigQuery view extracting standardized operational telemetry from inference logs
@@ -74,21 +144,21 @@ resource "google_bigquery_table" "completions_view" {
     query          = <<-SQL
       SELECT
         timestamp,
-        logName,
-        jsonPayload.trace_id AS trace_id,
-        jsonPayload.span_id AS span_id,
-        jsonPayload.model AS model,
-        CAST(jsonPayload.usage.prompt_tokens AS INT64) AS prompt_tokens,
-        CAST(jsonPayload.usage.completion_tokens AS INT64) AS completion_tokens,
-        CAST(jsonPayload.latency_ms AS FLOAT64) AS latency_ms,
-        jsonPayload.status AS status,
-        jsonPayload.error_message AS error_message
+        log_name AS logName,
+        trace_id,
+        span_id,
+        model,
+        prompt_tokens,
+        completion_tokens,
+        latency_ms,
+        status,
+        error_message
       FROM
-        `${var.project_id}.${google_bigquery_dataset.telemetry.dataset_id}.cloudaudit_googleapis_com_data_access`
+        `${var.project_id}.${google_bigquery_dataset.telemetry.dataset_id}.genai_telemetry_events`
       WHERE
-        jsonPayload.trace_id IS NOT NULL
+        trace_id IS NOT NULL
     SQL
   }
 
-  depends_on = [google_bigquery_dataset.telemetry]
+  depends_on = [google_bigquery_table.genai_telemetry_events]
 }

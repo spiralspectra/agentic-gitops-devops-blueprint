@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
+import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -55,6 +57,33 @@ class QueryResponse(BaseModel):
     latency_ms: float = Field(..., description="Execution latency in milliseconds.")
     model_version: str = Field(..., description="Model identifier used for generation.")
     session_id: str | None = Field(default=None, description="Session tracking ID.")
+
+
+SUSPICIOUS_PATTERNS = [
+    re.compile(r"ignore previous instructions", re.IGNORECASE),
+    re.compile(r"reveal (the )?system prompt", re.IGNORECASE),
+    re.compile(r"system\.root_password", re.IGNORECASE),
+    re.compile(r"drop table ", re.IGNORECASE),
+]
+
+
+def is_safe_input(prompt: str) -> bool:
+    """Evaluates whether an incoming query violates safety guardrails."""
+    for pattern in SUSPICIOUS_PATTERNS:
+        if pattern.search(prompt):
+            return False
+    return True
+
+
+def format_telemetry_event(session_id: str, query: str, duration_ms: float) -> dict[str, Any]:
+    """Formats structured telemetry log event for BigQuery / Cloud Logging."""
+    return {
+        "event_id": str(uuid.uuid4()),
+        "session_id": session_id,
+        "query_length": len(query),
+        "duration_ms": duration_ms,
+        "status": "success" if duration_ms < 5000.0 else "slow",
+    }
 
 
 def get_genai_client() -> genai.Client:

@@ -36,12 +36,16 @@ PROTECTED_PIPELINE_BINDING_NAMES = {
     "ci_tfstate_reader",
     "ci_workload_identity_user",
     "ci_token_creator",
+    "ci_wif_user",
+    "ci_roles",
     "deployer",
     "deployer_data_owner",
     "deployer_analytics_owner",
     "deployer_tfstate_admin",
     "deployer_workload_identity_user",
     "deployer_token_creator",
+    "deployer_wif_user",
+    "deployer_roles",
     "telemetry_deployer_owner",
 }
 

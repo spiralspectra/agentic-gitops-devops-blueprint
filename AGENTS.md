@@ -35,7 +35,7 @@ This repository is governed by the following strict architectural, operational, 
   - Strip all internal links, bug references, change list numbers, corp hostnames, and internal LDAPs.
 - **Commit Attribution**:
   - Never add `Co-Authored-By` trailers to commits.
-  - Commit author email must be `{ldap}@google.com`.
+  - Commit author email must match your verified organizational or GitHub identity (`git config --global user.useConfigOnly true`), with zero `Co-Authored-By` bot trailers.
 
 ---
 

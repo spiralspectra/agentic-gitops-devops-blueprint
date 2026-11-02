@@ -69,6 +69,11 @@ jobs:
 
           if not TOKEN:
               print("::warning::PROJECT_TOKEN secret is not configured; skipping Project board sync.")
+              if SUMMARY_PATH:
+                  with open(SUMMARY_PATH, "a", encoding="utf-8") as sf:
+                      sf.write("### Project Board Sync (Skipped)\n\n")
+                      sf.write("`PROJECT_TOKEN` secret is not configured in this repository.\n")
+                      sf.write("Issue and Pull Request lifecycle card synchronization was safely skipped.\n")
               sys.exit(0)
 
           with open(EVENT_PATH, encoding="utf-8") as f:

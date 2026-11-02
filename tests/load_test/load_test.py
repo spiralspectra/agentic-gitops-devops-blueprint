@@ -25,7 +25,7 @@ from locust import HttpUser, between, task
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TARGET_HOST = os.getenv("TARGET_HOST", "http://localhost:8080")
+TARGET_HOST = os.getenv("TARGET_HOST") or os.getenv("DEPLOYED_AGENT_URL") or "http://localhost:8080"
 
 
 class AgentUser(HttpUser):
@@ -35,7 +35,7 @@ class AgentUser(HttpUser):
     @task(3)
     def query_agent(self) -> None:
         headers = {"Content-Type": "application/json"}
-        token = os.getenv("AUTH_TOKEN")
+        token = os.getenv("AUTH_TOKEN") or os.getenv("_AUTH_TOKEN")
         if token:
             headers["Authorization"] = f"Bearer {token}"
 

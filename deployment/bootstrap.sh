@@ -31,15 +31,27 @@ GCP_TFVARS="${GCP_STACK}/vars/env.tfvars"
 GITHUB_TFVARS="${GITHUB_STACK}/vars/env.tfvars"
 
 ASSUME_YES=false
+APPLY=false
 SKIP_GCP=false
 SKIP_GITHUB=false
 SKIP_SEED=false
 PROJECT_ID=""
+REGION=""
+REPO_OWNER=""
+REPO_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --project) PROJECT_ID="$2"; shift 2 ;;
-    --yes|-y) ASSUME_YES=true; shift ;;
+    --project=*|--project-id=*) PROJECT_ID="${1#*=}"; shift ;;
+    --project|--project-id) PROJECT_ID="$2"; shift 2 ;;
+    --region=*) REGION="${1#*=}"; shift ;;
+    --region) REGION="$2"; shift 2 ;;
+    --repo-owner=*) REPO_OWNER="${1#*=}"; shift ;;
+    --repo-owner) REPO_OWNER="$2"; shift 2 ;;
+    --repo-name=*) REPO_NAME="${1#*=}"; shift ;;
+    --repo-name) REPO_NAME="$2"; shift 2 ;;
+    --apply) APPLY=true; shift ;;
+    --yes|-y) ASSUME_YES=true; APPLY=true; shift ;;
     --skip-gcp) SKIP_GCP=true; shift ;;
     --skip-github) SKIP_GITHUB=true; shift ;;
     --skip-seed) SKIP_SEED=true; shift ;;
@@ -59,7 +71,7 @@ tfvar() {
 }
 
 confirm() {
-  if $ASSUME_YES; then return 0; fi
+  if $ASSUME_YES || $APPLY; then return 0; fi
   read -r -p "$1 [y/N] " reply
   [[ "$reply" =~ ^[Yy]$ ]]
 }
@@ -72,9 +84,33 @@ for tool in gcloud terraform python3; do
   command -v "$tool" >/dev/null || die "$tool is required on PATH"
 done
 
+# Ensure single-project env.tfvars exists or auto-generate from example
+if [ ! -f "$GCP_TFVARS" ] && [ -f "${GCP_STACK}/vars/env.tfvars.example" ]; then
+  log "Auto-generating ${GCP_TFVARS} from env.tfvars.example"
+  mkdir -p "${GCP_STACK}/vars"
+  cp "${GCP_STACK}/vars/env.tfvars.example" "$GCP_TFVARS"
+fi
+
+# Apply CLI flag overrides to env.tfvars if specified
+if [ -f "$GCP_TFVARS" ]; then
+  if [ -n "$PROJECT_ID" ]; then
+    sed -i.bak "s/^project_id[[:space:]]*=.*/project_id       = \"${PROJECT_ID}\"/" "$GCP_TFVARS" && rm -f "${GCP_TFVARS}.bak"
+    sed -i.bak "s/^tf_state_bucket[[:space:]]*=.*/tf_state_bucket  = \"${PROJECT_ID}-tfstate\"/" "$GCP_TFVARS" && rm -f "${GCP_TFVARS}.bak"
+  fi
+  if [ -n "$REGION" ]; then
+    sed -i.bak "s/^region[[:space:]]*=.*/region           = \"${REGION}\"/" "$GCP_TFVARS" && rm -f "${GCP_TFVARS}.bak"
+  fi
+  if [ -n "$REPO_OWNER" ]; then
+    sed -i.bak "s/^repository_owner[[:space:]]*=.*/repository_owner = \"${REPO_OWNER}\"/" "$GCP_TFVARS" && rm -f "${GCP_TFVARS}.bak"
+  fi
+  if [ -n "$REPO_NAME" ]; then
+    sed -i.bak "s/^repository_name[[:space:]]*=.*/repository_name  = \"${REPO_NAME}\"/" "$GCP_TFVARS" && rm -f "${GCP_TFVARS}.bak"
+  fi
+fi
+
 [[ -z "$PROJECT_ID" ]] && PROJECT_ID="$(tfvar "$GCP_TFVARS" project_id || true)"
 PROJECT_ID="${PROJECT_ID:-your-gcp-project-id}"
-REGION="$(tfvar "$GCP_TFVARS" region || true)"
+[[ -z "$REGION" ]] && REGION="$(tfvar "$GCP_TFVARS" region || true)"
 REGION="${REGION:-us-central1}"
 STATE_BUCKET="$(tfvar "$GCP_TFVARS" tf_state_bucket || true)"
 STATE_BUCKET="${STATE_BUCKET:-${PROJECT_ID}-tfstate}"
@@ -115,7 +151,7 @@ if ! $SKIP_GCP; then
   # -------------------------------------------------------------------------
   log "terraform init/plan: single-project"
   if [ -d "$GCP_STACK" ]; then
-    terraform -chdir="$GCP_STACK" init -input=false -upgrade
+    terraform -chdir="$GCP_STACK" init -input=false -backend-config="bucket=${STATE_BUCKET}" -upgrade || terraform -chdir="$GCP_STACK" init -input=false -backend-config="bucket=${STATE_BUCKET}"
     terraform -chdir="$GCP_STACK" validate
     terraform -chdir="$GCP_STACK" plan -input=false -var-file=vars/env.tfvars -out=tfplan || true
     if [ -f "${GCP_STACK}/tfplan" ]; then
@@ -135,10 +171,10 @@ if ! $SKIP_SEED && ! $SKIP_GCP; then
     bq query --project_id="$PROJECT_ID" --location="$REGION" --use_legacy_sql=false --quiet \
       --parameter="sa:STRING:${CI_SA}" \
       "MERGE \`${PROJECT_ID}.${DATASET_ID}.user_entitlements\` t
-       USING (SELECT @sa AS user_email) s ON LOWER(TRIM(t.user_email)) = LOWER(TRIM(s.user_email))
+       USING (SELECT @sa AS authorized_user_email) s ON LOWER(TRIM(t.authorized_user_email)) = LOWER(TRIM(s.authorized_user_email))
        WHEN NOT MATCHED THEN
-         INSERT (user_email, wif_subject, role, branch_id, username, region_group, division)
-         VALUES (@sa, @sa, 'ADMIN', '*', '*', 'ALL', 'ALL')" 2>/dev/null || warn "Could not seed table (may not exist yet)."
+         INSERT (authorized_user_email, is_global_admin, tenant_id, role)
+         VALUES (@sa, TRUE, '*', 'ADMIN');" 2>/dev/null || warn "Could not seed table (may not exist yet)."
   fi
 fi
 

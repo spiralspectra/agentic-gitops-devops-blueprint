@@ -22,6 +22,7 @@ artifacts/
 .env.*
 !.env.example
 vars/env.tfvars
+!deployment/terraform/single-project/vars/env.tfvars
 
 # Terraform
 *.tfstate
