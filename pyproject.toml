@@ -22,6 +22,7 @@ dependencies = [
     "google-cloud-storage>=2.14.0",
     "google-cloud-aiplatform[agent-engines,evaluation]>=1.156.0,<2.0.0",
     "google-adk[bigquery-analytics,gcp,otel-gcp]>=2.9.2,<3.0.0",
+    "pyarrow!=26.0.1",
     "a2a-sdk[http-server]>=1.0,<2",
     "uvicorn>=0.28.0",
     "python-dotenv>=1.0.0",
