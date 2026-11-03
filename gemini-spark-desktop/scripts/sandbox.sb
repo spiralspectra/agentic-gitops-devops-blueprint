@@ -1,0 +1,49 @@
+;; Copyright 2026 The Project Contributors
+;; Licensed under the Apache License, Version 2.0
+
+(version 1)
+(deny default)
+
+;; Allow basic read permissions for execution and standard libraries
+(allow file-read*
+    (subpath "/System")
+    (subpath "/usr/lib")
+    (subpath "/usr/share")
+    (subpath "/usr/local")
+    (subpath "/opt/homebrew")
+    (subpath "/Library/Preferences")
+    (subpath "/Library/Frameworks")
+    (subpath "/dev")
+    (subpath "/private")
+    (subpath "/Users")
+)
+
+;; Deny sensitive credential directories
+(deny file-read*
+    (regex #"^/Users/[^/]+/\.ssh")
+    (regex #"^/Users/[^/]+/\.aws")
+)
+
+;; Restrict filesystem writes strictly to temporary scratch, canvas output, and user cache
+(allow file-write*
+    (subpath "/private/tmp")
+    (subpath "/var/folders")
+    (regex #"^/Users/[^/]+/Library/Caches/EnterpriseAgentDesktop")
+    (regex #"^/Users/[^/]+/operational_shift_canvas\.html$")
+)
+
+;; Allow local IPC and loopback networking for MCP daemon
+(allow network-inbound (local ip "localhost:*"))
+(allow network-outbound
+    (to ip "localhost:*")
+    (remote tcp "*:443") ;; HTTPS to Google Cloud APIs
+)
+
+;; Allow process fork and signal
+(allow process-fork)
+(allow process-exec
+    (subpath "/bin")
+    (subpath "/usr/bin")
+    (subpath "/usr/local/bin")
+    (subpath "/opt/homebrew/bin")
+)

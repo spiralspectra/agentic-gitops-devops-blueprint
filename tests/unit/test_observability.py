@@ -16,9 +16,21 @@
 
 from __future__ import annotations
 
+import importlib.util
 import uuid
+from pathlib import Path
 
-from agents.starter_agent.app import format_telemetry_event
+APP_INIT = Path(__file__).resolve().parents[2] / "agents" / "starter_agent" / "app" / "__init__.py"
+APP_FILE = (
+    APP_INIT
+    if APP_INIT.is_file()
+    else Path(__file__).resolve().parents[2] / "agents" / "starter_agent" / "app.py"
+)
+_spec = importlib.util.spec_from_file_location("starter_agent_standalone_app", APP_FILE)
+assert _spec and _spec.loader
+_starter_app = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_starter_app)
+format_telemetry_event = _starter_app.format_telemetry_event
 
 
 def test_telemetry_formatting():

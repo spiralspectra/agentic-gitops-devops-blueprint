@@ -51,8 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--tfvars", required=True)
-    parser.add_argument("--metadata", required=True)
+    parser.add_argument("--tfvars", "--tfvars-file", dest="tfvars", required=True)
+    parser.add_argument("--metadata", "--metadata-file", dest="metadata", required=True)
     parser.add_argument(
         "--state-engine",
         default="",

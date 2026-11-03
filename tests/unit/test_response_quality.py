@@ -45,9 +45,25 @@ def test_compact_trace_filters_thoughts_and_blobs():
     ]
     compacted = _compact_trace(raw_events)
     parts = compacted[0]["content"]["parts"]
-    assert len(parts) == 2
-    assert "text" in parts[0]
-    assert "function_call" in parts[1]
+    assert len(parts) == 3
+    assert parts[0]["text"] == "Hello, how can I help you today?"
+    assert parts[1]["inline_data"]["data"] == "<binary_blob_omitted>"
+    assert parts[2]["function_call"]["name"] == "query_database"
+
+    # Also test with agent_data containing turns
+    agent_data = {
+        "agents": {"my_agent": {"instruction": "static instruction"}},
+        "turns": [
+            {
+                "turn_index": 0,
+                "events": raw_events,
+            }
+        ],
+    }
+    compacted_agent = _compact_trace(agent_data)
+    assert "agents" not in compacted_agent
+    assert len(compacted_agent["turns"]) == 1
+    assert len(compacted_agent["turns"][0]["events"][0]["content"]["parts"]) == 3
 
 
 def test_offline_evaluate_mock_mode(monkeypatch):

@@ -10,11 +10,19 @@ on:
       - 'codemender/**'
       - 'deployment/**'
       - 'frontend/**'
+      - 'finance-agent/**'
+      - 'a2ui-iframe/**'
+      - 'gemini-spark-desktop/**'
+      - 'sync_lakehouse_to_bq.py'
+      - 'sync_knowledge_catalog_ontology.py'
       - 'tests/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/release.yaml'
-      - '!**/*.md'
+      - '!README.md'
+      - '!docs/**'
+      - '!CONTRIBUTING.md'
+      - '!CONTRIBUTORS.md'
       - '!agents/**/deployment_metadata.json'
   workflow_dispatch:
     inputs:
@@ -47,7 +55,10 @@ jobs:
     outputs:
       agent: ${{ steps.filter.outputs.agent }}
       terraform: ${{ steps.filter.outputs.terraform }}
+      views: ${{ steps.filter.outputs.views }}
+      lakehouse: ${{ steps.filter.outputs.lakehouse }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      finance: ${{ steps.filter.outputs.finance }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,8 +78,21 @@ jobs:
               - '.github/workflows/release.yaml'
             terraform:
               - 'deployment/**'
+            views:
+              - 'deployment/data/views/**'
+              - 'data/views/**'
+              - 'sync_lakehouse_to_bq.py'
+              - 'sync_knowledge_catalog_ontology.py'
+            lakehouse:
+              - 'deployment/data/views/**'
+              - 'data/views/**'
+              - 'sync_lakehouse_to_bq.py'
+              - 'sync_knowledge_catalog_ontology.py'
             frontend:
               - 'frontend/**'
+              - 'a2ui-iframe/**'
+            finance:
+              - 'finance-agent/**'
 
   preflight:
     name: preflight
@@ -225,6 +249,25 @@ jobs:
             --tfvars vars/env.tfvars \
             --metadata ../../../agents/starter_agent/deployment_metadata.json \
             --state-engine "${STATE_ENGINE}"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.plan.outputs.changes == 'true' || needs.changes.outputs.views == 'true' || github.event_name == 'workflow_dispatch'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        if: steps.plan.outputs.changes == 'true' || needs.changes.outputs.views == 'true' || github.event_name == 'workflow_dispatch'
+
+      - name: Reconcile BigQuery RLS views & Authorized Views
+        if: steps.plan.outputs.changes == 'true' || needs.changes.outputs.views == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          APP_BQ_DATASET: ${{ vars.APP_BQ_DATASET || 'lakehouse_sharing' }}
+          APP_BQ_LOCATION: ${{ env.GCP_REGION }}
+        run: |
+          cd ../../..
+          uv sync --all-extras
+          uv run python sync_lakehouse_to_bq.py --views-only
 
   tests:
     name: tests
@@ -511,10 +554,12 @@ jobs:
           registry_host="${FRONTEND_IMAGE_REPOSITORY%%/*}"
           gcloud auth configure-docker "${registry_host}" --quiet
           image="${FRONTEND_IMAGE_REPOSITORY}/${FRONTEND_SERVICE}"
+          dockerfile_dir="a2ui-iframe"
+          if [ ! -d "$dockerfile_dir" ]; then dockerfile_dir="frontend"; fi
           docker build --pull \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
-            -t "${image}:${GITHUB_SHA}" -t "${image}:latest" frontend/
+            -t "${image}:${GITHUB_SHA}" -t "${image}:latest" "$dockerfile_dir"/
           docker push "${image}:${GITHUB_SHA}"
           docker push "${image}:latest"
           echo "IMAGE=${image}:${GITHUB_SHA}" >> "$GITHUB_ENV"
@@ -538,3 +583,49 @@ jobs:
           code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${FRONTEND_URL}")"
           echo "GET ${FRONTEND_URL} -> ${code}"
           case "${code}" in 200|302) ;; *) echo "::error::unexpected status ${code} from frontend"; exit 1;; esac
+
+  sync-finance-persona:
+    name: sync-finance-persona
+    permissions:
+      contents: read
+      id-token: write
+    needs: [changes, preflight, terraform-apply, tests, evals]
+    if: ${{ needs.preflight.outputs.gcp_configured == 'true' && !cancelled() && !failure() && !(github.event_name == 'workflow_dispatch' && inputs.skip_deploy) && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.finance == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to Google Cloud (Deployer Identity)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOYER_SERVICE_ACCOUNT || vars.DEPLOYER_SERVICE_ACCOUNT_EMAIL }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Compile and validate the persona spec (dry run)
+        run: uv run python finance-agent/sync_finance_agent_persona.py --dry-run --project "${GCP_PROJECT_ID}" --location global
+
+      - name: Upsert the persona in Gemini Enterprise
+        run: uv run python finance-agent/sync_finance_agent_persona.py --project "${GCP_PROJECT_ID}" --location global | tee /tmp/persona.txt
+
+      - name: Persona summary
+        run: |
+          {
+            echo "## Financial Research Analyst Persona Synchronized"
+            echo '```'
+            cat /tmp/persona.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

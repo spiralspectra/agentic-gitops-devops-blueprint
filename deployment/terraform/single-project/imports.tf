@@ -17,7 +17,7 @@
 # resources without destructive teardowns or imperative CLI import scripts.
 
 locals {
-  adopt = var.adopt_existing_resources && var.reasoning_engine_id != "" ? toset(["existing"]) : toset([])
+  adopt = (var.adopt_existing_resources || var.adopt_existing) && var.reasoning_engine_id != "" ? toset(["existing"]) : toset([])
 }
 
 import {
@@ -36,4 +36,16 @@ import {
   for_each = local.adopt
   to       = google_storage_bucket.agent_artifacts
   id       = "${var.project_id}-${var.project_name}-artifacts"
+}
+
+import {
+  for_each = local.adopt
+  to       = google_bigquery_dataset.lakehouse_sharing
+  id       = "projects/${var.project_id}/datasets/${var.bq_dataset_id}"
+}
+
+import {
+  for_each = local.adopt
+  to       = google_bigquery_table.user_entitlements
+  id       = "projects/${var.project_id}/datasets/${var.bq_dataset_id}/tables/${var.user_entitlements_table_id}"
 }

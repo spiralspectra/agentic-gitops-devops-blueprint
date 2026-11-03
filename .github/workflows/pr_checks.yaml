@@ -29,6 +29,8 @@ jobs:
     outputs:
       agent: ${{ steps.filter.outputs.agent }}
       terraform: ${{ steps.filter.outputs.terraform }}
+      views: ${{ steps.filter.outputs.views }}
+      lakehouse: ${{ steps.filter.outputs.lakehouse }}
       frontend: ${{ steps.filter.outputs.frontend }}
       workflows: ${{ steps.filter.outputs.workflows }}
       gcp_configured: ${{ steps.check-wif.outputs.configured }}
@@ -53,14 +55,29 @@ jobs:
               - 'agents/**'
               - 'data/**'
               - 'codemender/**'
+              - 'finance-agent/**'
+              - 'gemini-spark-desktop/**'
+              - 'sync_lakehouse_to_bq.py'
+              - 'sync_knowledge_catalog_ontology.py'
               - 'tests/**'
               - 'pyproject.toml'
               - 'uv.lock'
               - 'Dockerfile'
             terraform:
               - 'deployment/**'
+            views:
+              - 'deployment/data/views/**'
+              - 'data/views/**'
+              - 'sync_lakehouse_to_bq.py'
+              - 'sync_knowledge_catalog_ontology.py'
+            lakehouse:
+              - 'deployment/data/views/**'
+              - 'data/views/**'
+              - 'sync_lakehouse_to_bq.py'
+              - 'sync_knowledge_catalog_ontology.py'
             frontend:
               - 'frontend/**'
+              - 'a2ui-iframe/**'
             workflows:
               - '.github/workflows/pr_checks.yaml'
               - '.github/workflows/release.yaml'
@@ -267,8 +284,12 @@ jobs:
         if: env.RUN == 'true'
         run: uv sync --all-extras
 
-      - name: Preflight BigQuery access check
-        if: env.RUN == 'true' && needs.changes.outputs.gcp_configured == 'true'
+      - name: Run CodeMender build verification
+        if: env.RUN == 'true'
+        run: bash ./codemender/build.sh
+
+      - name: Preflight BigQuery access and view syntax check
+        if: env.RUN == 'true'
         run: uv run python tests/ci/preflight_bq_access.py
 
       - name: Run unit test suite
@@ -362,8 +383,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  frontend-build:
-    name: frontend-build
+  a2ui-iframe-build:
+    name: a2ui-iframe-build
     permissions:
       contents: read
     needs: changes
@@ -378,26 +399,26 @@ jobs:
 
       - name: Nothing relevant changed
         if: env.RUN != 'true'
-        run: echo "No frontend or workflow changes in this PR - frontend-build skipped." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "No frontend/a2ui-iframe changes in this PR - a2ui-iframe-build skipped." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Docker build frontend image
+      - name: Docker build a2ui-iframe image
         if: env.RUN == 'true'
-        run: docker build --pull -t my-agent-frontend:pr frontend/
+        run: docker build --pull -t a2ui-iframe:pr a2ui-iframe/
 
       - name: Smoke check container embeddability and headers
         if: env.RUN == 'true'
         run: |
           set -euo pipefail
-          cid=$(docker run -d --rm -p 8080:8080 my-agent-frontend:pr)
+          cid=$(docker run -d --rm -p 8080:8080 a2ui-iframe:pr)
           trap 'docker logs "$cid" | tail -20; docker stop "$cid" >/dev/null' EXIT
           for i in $(seq 1 20); do curl -fsS -o /dev/null http://localhost:8080/ && break; sleep 1; done
           headers=$(curl -fsS -D - -o /tmp/index.html http://localhost:8080/)
           echo "$headers" | head -1
           if echo "$headers" | grep -qi '^x-frame-options'; then
-            echo "::error::frontend sends X-Frame-Options; host agentic canvas cannot embed it." ; exit 1
+            echo "::error::a2ui-iframe sends X-Frame-Options; host agentic canvas cannot embed it." ; exit 1
           fi
-          grep -q "agent_action" /tmp/index.html || { echo "::error::index.html missing postMessage bridge contract"; exit 1; }
+          grep -q "a2ui_action" /tmp/index.html || { echo "::error::index.html missing a2ui_action postMessage bridge contract"; exit 1; }
           {
-            echo "## frontend image verification"
-            echo "- Container built and verified at \`${GITHUB_SHA}\`: serves / with embeddable headers (no X-Frame-Options)."
+            echo "## a2ui-iframe image verification"
+            echo "- Container built and verified at \`${GITHUB_SHA}\`: serves / with embeddable headers (no X-Frame-Options) and a2ui_action postMessage bridge contract."
           } >> "$GITHUB_STEP_SUMMARY"

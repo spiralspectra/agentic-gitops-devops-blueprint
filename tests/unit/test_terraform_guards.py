@@ -132,6 +132,16 @@ def test_guard_allows_destruction_when_env_var_set(tmp_path: Path, monkeypatch: 
     monkeypatch.setenv("TF_ALLOW_DESTROY", "true")
     assert guard_terraform_plan.main(["guard_terraform_plan.py", str(plan_file)]) == 0
 
+    # With [allow-infra-destroy] in PR_BODY
+    monkeypatch.delenv("TF_ALLOW_DESTROY", raising=False)
+    monkeypatch.setenv("PR_BODY", "Fix schema [allow-infra-destroy] for table recreate")
+    assert guard_terraform_plan.main(["guard_terraform_plan.py", str(plan_file)]) == 0
+
+    # With [allow-infra-destroy] in COMMIT_MESSAGE
+    monkeypatch.delenv("PR_BODY", raising=False)
+    monkeypatch.setenv("COMMIT_MESSAGE", "chore: rotate resources [allow-infra-destroy]")
+    assert guard_terraform_plan.main(["guard_terraform_plan.py", str(plan_file)]) == 0
+
 
 def test_engine_consistency_matches(tmp_path: Path):
     tfvars = tmp_path / "env.tfvars"

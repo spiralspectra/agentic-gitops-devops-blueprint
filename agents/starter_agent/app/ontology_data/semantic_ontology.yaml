@@ -1,0 +1,81 @@
+# Copyright 2026 The Project Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+version: "0.2.0.dev0/google"
+namespace: "enterprise.analytics"
+description: "Semantic domain ontology for enterprise multi-agent operations and financial governance."
+
+entities:
+  Operation:
+    description: "Operational unit of work or daily activity record"
+    source_view: "v_operations"
+    primary_key: "operation_id"
+    dimensions:
+      - name: "operation_id"
+        type: "STRING"
+      - name: "operation_date"
+        type: "DATE"
+      - name: "department_id"
+        type: "STRING"
+      - name: "status"
+        type: "STRING"
+    metrics:
+      - name: "operational_volume"
+        type: "FLOAT64"
+        aggregation: "SUM"
+
+  CatalogItem:
+    description: "Commercial offering or product item"
+    source_view: "v_catalog_enriched"
+    primary_key: "item_id"
+    dimensions:
+      - name: "item_id"
+        type: "STRING"
+      - name: "title"
+        type: "STRING"
+      - name: "category"
+        type: "STRING"
+      - name: "margin_tier"
+        type: "STRING"
+    metrics:
+      - name: "unit_price"
+        type: "FLOAT64"
+        aggregation: "AVG"
+
+  FinanceTransaction:
+    description: "Settled commercial transaction and revenue record"
+    source_view: "v_finance_transactions"
+    primary_key: "transaction_id"
+    dimensions:
+      - name: "transaction_id"
+        type: "STRING"
+      - name: "transaction_date"
+        type: "DATE"
+      - name: "department_id"
+        type: "STRING"
+      - name: "status"
+        type: "STRING"
+    metrics:
+      - name: "gross_revenue"
+        type: "FLOAT64"
+        aggregation: "SUM"
+      - name: "net_margin"
+        type: "FLOAT64"
+        aggregation: "SUM"
+
+joins:
+  - from: "Operation"
+    to: "FinanceTransaction"
+    type: "ONE_TO_MANY"
+    condition: "Operation.operation_id = FinanceTransaction.transaction_id"

@@ -154,8 +154,13 @@ def collect_case_rows(results: dict[str, Any] | list[Any]) -> list[CaseRow]:
 
     # Format from agents-cli or evaluation runner
     case_results = results.get("eval_case_results") or results.get("instances") or []
+    dataset = (results.get("metadata") or {}).get("dataset") or []
     for i, case in enumerate(case_results):
-        cid = str(case.get("eval_case_id") or case.get("id") or f"case_{i}")
+        cid = ""
+        if i < len(dataset) and isinstance(dataset[i], dict):
+            cid = str(dataset[i].get("eval_case_id") or "")
+        if not cid:
+            cid = str(case.get("eval_case_id") or case.get("id") or f"case_{i}")
         scores = {}
         errors = {}
         candidates = case.get("response_candidate_results") or []
@@ -186,7 +191,7 @@ def evaluate(
     rows = collect_case_rows(results)
 
     if not rows:
-        return ["Evaluation results contain no cases."], rows
+        return ["No evaluation results found (evaluation results contain no cases)."], rows
 
     # 1. Error check
     errored = [r for r in rows if r.errors]
@@ -333,8 +338,14 @@ def write_step_summary(content: str) -> None:
             print(f"Warning: Failed to write to GITHUB_STEP_SUMMARY: {exc}", file=sys.stderr)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluate agent metrics against thresholds.")
+    parser.add_argument(
+        "results_file_pos",
+        nargs="?",
+        default=None,
+        help="Optional positional path to direct result JSON file.",
+    )
     parser.add_argument(
         "--results-dir",
         default="grade-results",
@@ -350,13 +361,14 @@ def main() -> int:
         default=str(Path(__file__).parent / "eval_config.yaml"),
         help="Path to eval_config.yaml.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     thresholds = load_thresholds(args.config)
 
+    target_file = args.results_file or args.results_file_pos
     try:
-        if args.results_file:
-            res_path = Path(args.results_file)
+        if target_file:
+            res_path = Path(target_file)
         else:
             res_path = find_latest_results(args.results_dir)
     except FileNotFoundError as e:

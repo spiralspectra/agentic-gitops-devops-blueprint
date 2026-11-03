@@ -1,0 +1,88 @@
+{
+  "description": "Curated Google Cloud Knowledge Catalog Context Set and Context Graph for Enterprise Agentic Systems (Operations, Catalog & Product, Finance & Transactions).",
+  "entry_group": "enterprise-agent-context-set",
+  "location": "us-central1",
+  "output_format": "progressive_disclosure",
+  "project": "enterprise-agent-project",
+  "schema_version": 1,
+  "entries": [
+    {
+      "entry_id": "assets/bigquery/enterprise-agent-project/enterprise_analytics/v_operations",
+      "entry_type": "generic",
+      "source_resource": "projects/enterprise-agent-project/datasets/enterprise_analytics/tables/v_operations",
+      "source_system": "bigquery",
+      "display_name": "Authorised Operations & Activity View (v_operations)",
+      "description": "Authorised 4-tier Row-Level Security view over operational events, task executions, and daily huddle metrics.",
+      "overview": "# Authorised Operations View (`v_operations`)\n\n## Purpose & Grain\n- **Grain:** One row per operational event or activity (`operation_id`).\n- **Authorised View:** Enforces 4-tier `SESSION_USER()` Row-Level Security via `user_entitlements`.\n- **Snapshot Anchor Date:** Evaluates relative dates against snapshot anchor (`2026-10-17`).\n\n## Mandatory Join Rules\n- Join to Department: `LEFT JOIN department d ON v_operations.department_id = d.department_id`.\n- Join to Customer Bridge: `LEFT JOIN customer_bridge c ON v_operations.customer_id = c.customer_id`.",
+      "queries": [
+        {
+          "description": "Daily Operational Summary and KPI Volume by Department",
+          "sql": "SELECT department_id, COUNT(operation_id) AS total_operations, ROUND(SUM(operational_volume), 2) AS total_volume FROM `enterprise-agent-project.enterprise_analytics.v_operations` WHERE status != 'CANCELLED' AND operation_date BETWEEN DATE '2026-10-01' AND DATE '2026-10-17' GROUP BY department_id ORDER BY total_volume DESC",
+          "source": "AGENT",
+          "sqlDialect": "GOOGLE_SQL"
+        }
+      ],
+      "schema_fields": [
+        {"name": "operation_id", "type": "STRING", "mode": "REQUIRED", "description": "Unique operation event identifier"},
+        {"name": "operation_date", "type": "DATE", "mode": "REQUIRED", "description": "Activity creation date"},
+        {"name": "department_id", "type": "STRING", "mode": "REQUIRED", "description": "Department or branch code"},
+        {"name": "operator_id", "type": "STRING", "mode": "NULLABLE", "description": "Assigned team member or operator ID"},
+        {"name": "status", "type": "STRING", "mode": "REQUIRED", "description": "Current status (PENDING, ACTIVE, COMPLETED, CANCELLED)"},
+        {"name": "operational_volume", "type": "FLOAT64", "mode": "NULLABLE", "description": "Operational measure or activity weight"},
+        {"name": "sla_due_date", "type": "DATE", "mode": "NULLABLE", "description": "Target completion date for SLA tracking"}
+      ]
+    },
+    {
+      "entry_id": "assets/bigquery/enterprise-agent-project/enterprise_analytics/v_catalog_enriched",
+      "entry_type": "generic",
+      "source_resource": "projects/enterprise-agent-project/datasets/enterprise_analytics/tables/v_catalog_enriched",
+      "source_system": "bigquery",
+      "display_name": "Authorised Catalog & Product Enriched View (v_catalog_enriched)",
+      "description": "Authorised view over product catalog, pricing tiers, and inventory availability.",
+      "overview": "# Authorised Catalog View (`v_catalog_enriched`)\n\n## Purpose & Grain\n- **Grain:** One row per product offering (`item_id`).\n- **Usage:** Used by Pillar 2 Catalog & Personalisation Agent for product positioning and customer matching.",
+      "queries": [
+        {
+          "description": "Active Offerings by Category and Margin Tier",
+          "sql": "SELECT category, margin_tier, COUNT(item_id) AS item_count, ROUND(AVG(unit_price), 2) AS avg_price FROM `enterprise-agent-project.enterprise_analytics.v_catalog_enriched` WHERE is_active = TRUE GROUP BY category, margin_tier ORDER BY item_count DESC",
+          "source": "AGENT",
+          "sqlDialect": "GOOGLE_SQL"
+        }
+      ],
+      "schema_fields": [
+        {"name": "item_id", "type": "STRING", "mode": "REQUIRED", "description": "Unique catalog product identifier"},
+        {"name": "title", "type": "STRING", "mode": "REQUIRED", "description": "Product display name"},
+        {"name": "category", "type": "STRING", "mode": "REQUIRED", "description": "Product grouping or category"},
+        {"name": "unit_price", "type": "FLOAT64", "mode": "REQUIRED", "description": "Standard unit price"},
+        {"name": "margin_tier", "type": "STRING", "mode": "NULLABLE", "description": "Margin category (HIGH, STANDARD, PROMOTIONAL)"},
+        {"name": "is_active", "type": "BOOLEAN", "mode": "REQUIRED", "description": "Whether the offering is currently active"}
+      ]
+    },
+    {
+      "entry_id": "assets/bigquery/enterprise-agent-project/enterprise_analytics/v_finance_transactions",
+      "entry_type": "generic",
+      "source_resource": "projects/enterprise-agent-project/datasets/enterprise_analytics/tables/v_finance_transactions",
+      "source_system": "bigquery",
+      "display_name": "Authorised Finance Transactions View (v_finance_transactions)",
+      "description": "Authorised view over commercial transactions, gross revenue, net margin, and settled payments.",
+      "overview": "# Authorised Finance Transactions View (`v_finance_transactions`)\n\n## Purpose & Grain\n- **Grain:** One row per financial transaction (`transaction_id`).\n- **Governance:** Subject to sensitive remuneration guardrails: individual personal commission and payroll are excluded.",
+      "queries": [
+        {
+          "description": "Monthly Financial Revenue and Margin Breakdown",
+          "sql": "SELECT transaction_type, COUNT(transaction_id) AS transaction_count, ROUND(SUM(gross_revenue), 2) AS total_gross_revenue, ROUND(SUM(net_margin), 2) AS total_net_margin FROM `enterprise-agent-project.enterprise_analytics.v_finance_transactions` WHERE status = 'SETTLED' GROUP BY transaction_type ORDER BY total_gross_revenue DESC",
+          "source": "AGENT",
+          "sqlDialect": "GOOGLE_SQL"
+        }
+      ],
+      "schema_fields": [
+        {"name": "transaction_id", "type": "STRING", "mode": "REQUIRED", "description": "Unique transaction reference"},
+        {"name": "transaction_date", "type": "DATE", "mode": "REQUIRED", "description": "Transaction booking or settlement date"},
+        {"name": "customer_id", "type": "STRING", "mode": "NULLABLE", "description": "Customer identifier"},
+        {"name": "department_id", "type": "STRING", "mode": "REQUIRED", "description": "Associated cost center or department"},
+        {"name": "transaction_type", "type": "STRING", "mode": "REQUIRED", "description": "Transaction category"},
+        {"name": "gross_revenue", "type": "FLOAT64", "mode": "REQUIRED", "description": "Gross transaction value"},
+        {"name": "net_margin", "type": "FLOAT64", "mode": "REQUIRED", "description": "Commercial margin"},
+        {"name": "status", "type": "STRING", "mode": "REQUIRED", "description": "Settlement state (SETTLED, PENDING, REFUNDED)"}
+      ]
+    }
+  ]
+}

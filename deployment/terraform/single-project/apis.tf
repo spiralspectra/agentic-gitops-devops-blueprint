@@ -14,17 +14,31 @@
 
 locals {
   required_services = [
-    "aiplatform.googleapis.com",
-    "artifactregistry.googleapis.com",
-    "bigquery.googleapis.com",
+    "serviceusage.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
+    "sts.googleapis.com",
+    "aiplatform.googleapis.com",
+    "bigquery.googleapis.com",
+    "bigqueryconnection.googleapis.com",
+    "secretmanager.googleapis.com",
+    "storage.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
+    "cloudtrace.googleapis.com",
+    "telemetry.googleapis.com",
+    "clouderrorreporting.googleapis.com",
+    "billingbudgets.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "artifactregistry.googleapis.com",
     "run.googleapis.com",
-    "secretmanager.googleapis.com",
-    "sts.googleapis.com",
+    "compute.googleapis.com",
+    "certificatemanager.googleapis.com",
+    "iap.googleapis.com",
+    "dataplex.googleapis.com",
+    "datacatalog.googleapis.com",
+    "agenticapplications.googleapis.com",
   ]
 }
 

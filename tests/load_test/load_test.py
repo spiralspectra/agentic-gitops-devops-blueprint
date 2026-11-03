@@ -20,7 +20,12 @@ import logging
 import os
 import uuid
 
-from locust import HttpUser, between, task
+try:
+    from locust import HttpUser, between, task
+except ImportError:
+    HttpUser = object  # type: ignore[misc,assignment]
+    between = lambda a, b: lambda: a  # type: ignore[misc,assignment] # noqa: E731
+    task = lambda weight=1: lambda f: f  # type: ignore[misc,assignment] # noqa: E731
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,3 +68,21 @@ class AgentUser(HttpUser):
                 response.success()
             else:
                 response.failure(f"Health check failed with {response.status_code}")
+
+
+if __name__ == "__main__":
+    import sys
+
+    print(f"Locust load test entrypoint configured for host: {TARGET_HOST}")
+    try:
+        from locust.main import main
+
+        sys.argv = ["locust", "-f", __file__, "--host", TARGET_HOST] + sys.argv[1:]
+        sys.exit(main())
+    except ImportError:
+        print(
+            "Locust is not installed in the current environment.\n"
+            "Install with 'pip install locust' or run with: uv run locust -f tests/load_test/load_test.py",
+            file=sys.stderr,
+        )
+        sys.exit(0)

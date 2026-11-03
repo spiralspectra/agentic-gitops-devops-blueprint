@@ -1,0 +1,49 @@
+{
+  "$comment": "Declarative spec for the Google Managed AnalystAgentPersona. Compiled and synchronized by sync_finance_agent_persona.py. The personaId must stay 'default' for standard agent routing.",
+  "personaId": "default",
+  "location": "global",
+  "displayName": "Enterprise Corporate Finance & FP&A Analyst",
+  "displayDescription": "Executive P&L reporting, margin variance bridges, working capital liquidity forecasting, and transaction reconciliation grounded in BigQuery Authorized Views.",
+  "modelDescriptionFile": "default.model_description.md",
+  "role": "ANALYST_ROLE_CORPORATE_FINANCE_ANALYST",
+  "mathRenderingMode": "MATH_RENDERING_MODE_PLAIN_TEXT",
+  "webSearchConfig": {
+    "disabled": false,
+    "excludedDomains": []
+  },
+  "artifactsConfig": {
+    "slideGenerationOptions": { "exportFormat": "PPTX" },
+    "documentGenerationOptions": { "exportFormat": "DOCX" },
+    "visualizationOptions": { "visualizationMode": "VISUALIZATION_MODE_WHEN_HELPFUL" },
+    "methodologyExportOptions": { "exportFormat": "PDF", "appendMethodology": false, "exportMethodologyArtifact": true },
+    "auditTrailExportOptions": { "exportFormat": "HTML", "appendAuditTrail": false, "exportAuditTrailArtifact": true }
+  },
+  "resources": [
+    {
+      "displayLabel": "Finance transactions (v_finance_transactions)",
+      "modelDescription": "PRIMARY SOURCE. Flat transactional records row-level secured. Measures: gross_sales_amount (total transaction value), margin_amount (net margin income), discount_amount (negative discount applied), outstanding_balance, tax_amount. Dimensions: transaction_id, unit_id, unit_name, region, division, vendor_id, vendor_name, vendor_currency, product_category, transaction_date, transaction_month, is_cancelled. Always filter is_cancelled = FALSE for operational trading and margin reviews.",
+      "bigqueryResource": {
+        "bigqueryTable": "projects/your-gcp-project-id/datasets/enterprise_lakehouse/tables/v_finance_transactions"
+      }
+    },
+    {
+      "displayLabel": "Finance receipts (v_finance_receipts)",
+      "modelDescription": "Cash settlement and payment transactions row-level secured: receipt_id, transaction_id, receipt_date, receipt_month, payment_method (Card, Direct Debit, Bank Transfer, Cash), amount (negative for refunds), merchant_fee, receipt_type (Payment, Refund), is_settled. Aggregate receipts per transaction before joining to transactions.",
+      "bigqueryResource": {
+        "bigqueryTable": "projects/your-gcp-project-id/datasets/enterprise_lakehouse/tables/v_finance_receipts"
+      }
+    },
+    {
+      "displayLabel": "Customer transaction bridge (v_finance_customer_bridge)",
+      "modelDescription": "PII-free customer bridge joining customer_id to transaction_id with customer_segment, repeat_order_count, and account_age_days. Use for cohort analysis, segment margin, and retention economics without accessing PII.",
+      "bigqueryResource": {
+        "bigqueryTable": "projects/your-gcp-project-id/datasets/enterprise_lakehouse/tables/v_finance_customer_bridge"
+      }
+    }
+  ],
+  "skills": [
+    "executive-pack",
+    "reconciliation-audit",
+    "working-capital-liquidity"
+  ]
+}

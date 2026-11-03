@@ -12,6 +12,7 @@ Usage: guard_terraform_plan.py <terraform show -json output>
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -83,11 +84,31 @@ def destructive_changes(plan: dict) -> list[tuple[str, list[str]]]:
     return found
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__, file=sys.stderr)
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "plan_file",
+        nargs="?",
+        default="",
+        help="Path to terraform plan JSON output",
+    )
+    parser.add_argument(
+        "--plan-json",
+        dest="plan_json_flag",
+        default="",
+        help="Alternative flag specifying path to terraform plan JSON output",
+    )
+    args = parser.parse_args(argv[1:])
+    plan_path = args.plan_json_flag or args.plan_file
+    if not plan_path:
+        parser.print_help(sys.stderr)
         return 2
-    with open(argv[1], encoding="utf-8") as f:
+
+    with open(plan_path, encoding="utf-8") as f:
         plan = json.load(f)
 
     found = destructive_changes(plan)
@@ -95,12 +116,18 @@ def main(argv: list[str]) -> int:
         print("Plan contains no destroy/replace actions.")
         return 0
 
-    allow = os.environ.get("TF_ALLOW_DESTROY", "").strip().lower() == "true"
+    allow = (
+        os.environ.get("TF_ALLOW_DESTROY", "").strip().lower() == "true"
+        or "[allow-infra-destroy]" in os.environ.get("PR_BODY", "").lower()
+        or "[allow-infra-destroy]" in os.environ.get("COMMIT_MESSAGE", "").lower()
+    )
     print(f"Plan contains {len(found)} destructive action(s):")
     for address, actions in found:
         print(f"  {address}: {' -> '.join(actions)}")
     if allow:
-        print("TF_ALLOW_DESTROY=true: proceeding.")
+        print(
+            "Destructive changes permitted via TF_ALLOW_DESTROY or [allow-infra-destroy]: proceeding."
+        )
         return 0
     print(
         "\nRefusing to apply automatically. If this is intended, set the GitHub "

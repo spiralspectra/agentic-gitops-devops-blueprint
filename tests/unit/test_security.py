@@ -16,7 +16,20 @@
 
 from __future__ import annotations
 
-from agents.starter_agent.app import is_safe_input
+import importlib.util
+from pathlib import Path
+
+APP_INIT = Path(__file__).resolve().parents[2] / "agents" / "starter_agent" / "app" / "__init__.py"
+APP_FILE = (
+    APP_INIT
+    if APP_INIT.is_file()
+    else Path(__file__).resolve().parents[2] / "agents" / "starter_agent" / "app.py"
+)
+_spec = importlib.util.spec_from_file_location("starter_agent_standalone_app", APP_FILE)
+assert _spec and _spec.loader
+_starter_app = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_starter_app)
+is_safe_input = _starter_app.is_safe_input
 
 
 def test_benign_queries_pass_guardrail():

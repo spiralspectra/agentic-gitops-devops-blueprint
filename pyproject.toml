@@ -72,7 +72,7 @@ ignore = [
 known-first-party = ["agents", "deployment"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "agents/starter_agent"]
 testpaths = ["tests/unit"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
@@ -83,4 +83,4 @@ markers = [
 
 [tool.codespell]
 skip = "*.lock,*.json,*.tfstate*,./.venv,./.git,./node_modules"
-ignore-words-list = "te,nd"
+ignore-words-list = "te,nd,anc"

@@ -45,8 +45,8 @@ class EvaluationVerdict(BaseModel):
     explanation: str
 
 
-def _compact_trace(raw_events: Any) -> list[dict[str, Any]]:
-    """Compacts raw agent trace events, removing thoughts and binary blobs while preserving tool calls."""
+def _compact_events(raw_events: Any) -> list[dict[str, Any]]:
+    """Compacts a list of ADK event dicts, omitting thoughts and binary image blobs while keeping all tool rows."""
     events = copy.deepcopy(raw_events if isinstance(raw_events, list) else [])
     compacted: list[dict[str, Any]] = []
     for ev in events:
@@ -56,18 +56,42 @@ def _compact_trace(raw_events: Any) -> list[dict[str, Any]]:
         if not isinstance(content, dict):
             continue
         parts: list[dict[str, Any]] = []
-        for p in content.get("parts", []):
-            if not isinstance(p, dict):
+        for part in content.get("parts") or []:
+            if not isinstance(part, dict) or part.get("thought"):
                 continue
-            if "thought" in p:
-                continue
-            if "inline_data" in p:
-                continue
-            parts.append(p)
+            part.pop("thought_signature", None)
+            if isinstance(part.get("inline_data"), dict):
+                part["inline_data"]["data"] = "<binary_blob_omitted>"
+            parts.append(part)
         if parts:
-            ev["content"]["parts"] = parts
-            compacted.append(ev)
+            compacted.append(
+                {
+                    "author": ev.get("author"),
+                    "content": {"role": content.get("role"), "parts": parts},
+                }
+            )
     return compacted
+
+
+def _compact_trace(agent_data: Any) -> Any:
+    """Strips static agent schemas and inline binary blobs while preserving 100% of turn events and tool rows."""
+    if isinstance(agent_data, list):
+        return _compact_events(agent_data)
+    if not isinstance(agent_data, dict):
+        return agent_data
+    raw_turns = agent_data.get("turns")
+    if isinstance(raw_turns, list):
+        return {
+            "turns": [
+                {
+                    "turn_index": t.get("turn_index", idx),
+                    "events": _compact_events(t.get("events")),
+                }
+                for idx, t in enumerate(raw_turns)
+                if isinstance(t, dict)
+            ]
+        }
+    return {"events": _compact_events(agent_data.get("events"))}
 
 
 def get_judge_client() -> genai.Client | None:

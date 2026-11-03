@@ -1,0 +1,283 @@
+<!doctype html>
+<!--
+Copyright 2026 The Project Contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Enterprise Retail &amp; Operations Workbench — A2UI Canvas</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Top Command Bar -->
+  <header class="command-bar" role="banner">
+    <div class="command-top">
+      <div class="brand-cluster">
+        <svg class="brand-logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Enterprise Brand Logo">
+          <rect width="40" height="40" rx="10" fill="var(--brand-primary)" stroke="var(--brand-accent)" stroke-width="1.5"/>
+          <circle cx="20" cy="16" r="7" fill="var(--brand-accent)"/>
+          <path d="M10 27C13 31 27 31 30 27" stroke="var(--brand-highlight)" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <div class="brand-title-wrap">
+          <div class="brand-title">
+            <span>Enterprise Assistant · Agentic Workbench</span>
+          </div>
+          <div class="brand-subtitle">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span>WIF RLS Active · Catalog &amp; Places Enriched · Live Telemetry</span>
+            <span id="live-telemetry-badge" class="live-telemetry-pill">🟢 LIVE SYNC</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="selectors-cluster">
+        <div class="selector-pill">
+          <label for="branch-selector">🏢 Branch:</label>
+          <select id="branch-selector" aria-label="Select Operating Branch">
+            <option value="0015">Branch 0015 — North Regional Hub</option>
+            <option value="9024">Branch 9024 — West Metro Center</option>
+            <option value="MAN1">Branch MAN1 — Central Flagship</option>
+          </select>
+        </div>
+
+        <div class="selector-pill">
+          <label for="persona-selector">👤 Customer:</label>
+          <select id="persona-selector" aria-label="Select Customer Cohort">
+            <option value="jenkins">Sarah Jenkins (Family Leisure · Cohort: High Affinity)</option>
+            <option value="smith">Alex Smith (Repeat Business Traveler · Cohort: Executive)</option>
+            <option value="henderson">Claire Henderson (Short-Lead Leisure · Cohort: Value Explorer)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <nav class="mode-tabs" aria-label="Workspace Modes">
+      <button type="button" class="mode-tab active" data-tab="pillar2" aria-selected="true" role="tab">
+        <span>✨ Curated Catalog &amp; Trip Ideator</span>
+        <span class="tab-badge">Hero Mode</span>
+      </button>
+      <button type="button" class="mode-tab" data-tab="pillar3" aria-selected="false" role="tab">
+        <span>📣 Marketing &amp; Content Studio</span>
+        <span class="tab-badge">Omni-Channel</span>
+      </button>
+      <button type="button" class="mode-tab" data-tab="pillar1" aria-selected="false" role="tab">
+        <span>📊 Operations &amp; FP&amp;A Cockpit</span>
+        <span class="tab-badge">KPI Dashboard</span>
+      </button>
+    </nav>
+  </header>
+
+  <!-- Toast Notification -->
+  <div id="a2ui-toast" class="a2ui-toast" role="status" aria-live="polite"></div>
+
+  <!-- Main Canvas -->
+  <main class="workspace-container" role="main">
+    <!-- TAB 1: Curated Catalog & Trip Ideator -->
+    <section id="panel-pillar2" class="tab-panel active" aria-label="Curated Catalog and Trip Ideator" role="tabpanel">
+      <!-- Zone A: Climate and Seasonality Strip -->
+      <div class="weather-banner" id="weather-banner">
+        <div id="wn-local-box" class="wn-local-box"></div>
+        <div id="wn-bridge" class="wn-bridge"></div>
+        <div id="wn-ensemble-wrap" class="wn-ensemble-wrap"></div>
+        <button type="button" id="btn-weather-filter" class="wn-filter-btn">Filter by Optimal Climate</button>
+      </div>
+
+      <!-- Zone B: Offer Comparator Grid -->
+      <div id="offers-comparator-grid" class="offers-grid"></div>
+
+      <!-- Zone C: Interactive Itinerary & Ancillary Drawer -->
+      <div class="ideator-drawer">
+        <div>
+          <div class="drawer-section-header">
+            <div class="drawer-title">
+              <span>🗺️ Points of Interest · Curated Gems for <span id="poi-selected-item-name">Selected Location</span></span>
+            </div>
+            <span class="badge-subtle">Geo-Enriched POI Service</span>
+          </div>
+          <div class="helper-text">
+            Select points of interest to assemble a customized 3-Day Mini-Itinerary:
+          </div>
+
+          <div id="poi-cards-grid" class="poi-grid"></div>
+
+          <div class="mini-itinerary-box">
+            <div class="mini-itinerary-header">
+              <span>🗓️ 3-Day Customer Itinerary Preview</span>
+              <span id="itinerary-count-pill" class="badge-subtle">2 Selected</span>
+            </div>
+            <div id="itinerary-days-list" class="itinerary-days-list"></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="drawer-section-header">
+            <div class="drawer-title">
+              <span>💷 Ancillary Essentials &amp; Basket Summary</span>
+            </div>
+            <span class="badge-subtle">Entitlement Scoped</span>
+          </div>
+          <div class="helper-text">
+            Attach pre-departure insurance, currency exchange, and transfers in real time:
+          </div>
+
+          <div id="ancillary-checkbox-list" class="ancillary-list"></div>
+          <div id="live-basket-summary" class="live-basket-box"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Marketing Studio -->
+    <section id="panel-pillar3" class="tab-panel" aria-label="Marketing Studio" role="tabpanel" hidden>
+      <div class="studio-controls-bar">
+        <div class="control-group">
+          <label for="studio-offer-select">🎯 Active Offer:</label>
+          <select id="studio-offer-select">
+            <option value="offer-core-1">Core Offer #1: Island Beach Resort &amp; Spa (£1,089pp)</option>
+            <option value="offer-vista-1">Direct Contract #1: Premium Coastal Bay (£829pp · 22% Margin)</option>
+            <option value="offer-core-2">Core Offer #2: Mediterranean Suites (£799pp)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <span class="control-label">🗣️ Tone &amp; Dialect:</span>
+          <div class="pill-group">
+            <button type="button" class="pill-btn active" data-dialect="northeast">Regional Casual</button>
+            <button type="button" class="pill-btn" data-dialect="formal">Professional / Corporate</button>
+            <button type="button" class="pill-btn" data-dialect="standard">Standard Consumer</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <span class="control-label">🖼️ Output Format:</span>
+          <div class="pill-group">
+            <button type="button" class="pill-btn active" data-format="facebook">📱 Social Media Feed</button>
+            <button type="button" class="pill-btn" data-format="a4">🖨️ Printable A4 Display</button>
+            <button type="button" class="pill-btn" data-format="tv">📺 16:9 In-Store Digital Display</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="studio-workspace">
+        <div class="studio-preview-card">
+          <div id="studio-preview-canvas"></div>
+        </div>
+
+        <div class="compliance-card">
+          <div class="compliance-header">
+            <div class="drawer-title">🛡️ Regulatory Compliance Verifier</div>
+            <span class="status-emerald-pill">5 / 5 PASSED</span>
+          </div>
+
+          <div class="check-item">✅ <strong>1. Departure Point:</strong> Departure terminal &amp; carrier explicitly noted.</div>
+          <div class="check-item">✅ <strong>2. Date &amp; Duration:</strong> Precise travel window &amp; duration stated.</div>
+          <div class="check-item">✅ <strong>3. Pricing Transparency:</strong> Per-person price &amp; total commitment verified.</div>
+          <div class="check-item">✅ <strong>4. Rating Differentiation:</strong> Standard ratings clearly separated from user reviews.</div>
+          <div class="check-item">✅ <strong>5. Regulatory Bonding:</strong> Required consumer protection &amp; disclaimers attached.</div>
+
+          <div id="studio-mosaic-target" class="target-cohort-box"></div>
+
+          <div class="studio-action-stack">
+            <button type="button" id="btn-copy-compliant-post" class="btn-studio-jump">
+              📋 Copy Post Copy &amp; Disclaimers
+            </button>
+            <button type="button" id="btn-publish-amplify" class="btn-send-pitch">
+              🚀 Publish to Enterprise Channels (a2ui_action)
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Operations & FP&A Cockpit -->
+    <section id="panel-pillar1" class="tab-panel" aria-label="Operations Cockpit" role="tabpanel" hidden>
+      <div id="cockpit-kpi-row" class="kpi-row"></div>
+
+      <div class="queues-grid">
+        <div class="queue-panel">
+          <div class="drawer-title">📞 Priority 1: Post-Service Follow-Up Queue</div>
+          <div class="helper-text">
+            Recent returners ranked by customer satisfaction score and repeat engagement probability.
+          </div>
+          <div id="t7-welcome-queue" class="queue-list"></div>
+        </div>
+
+        <div class="queue-panel">
+          <div class="drawer-title">⚠️ Priority 2: 14-Day Outstanding Balance Tracker</div>
+          <div class="helper-text">
+            Transactions with balance due before service delivery window.
+          </div>
+          <div id="balance-due-queue" class="queue-list"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Sticky Footer Action Bar -->
+  <footer class="sticky-action-bar" role="contentinfo">
+    <div class="sticky-action-inner">
+      <div id="sticky-summary-strip" class="action-summary-strip"></div>
+      <div class="action-buttons-cluster">
+        <button type="button" id="btn-open-marketing-studio" class="btn-studio-jump">
+          📣 Open in Marketing Studio
+        </button>
+        <button type="button" id="btn-send-pitch" class="btn-send-pitch">
+          ✨ Send Curated Package to Agent
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    function emit(action, data) {
+      var targetOrigin = "";
+      try {
+        var allowedHostRe = /^([a-z0-9-]+\.)*(cloud\.google\.com|google\.com|run\.app|example\.com)$/i;
+        function isAllowedOrigin(candidate) {
+          if (!candidate || candidate === "null" || candidate === "REPLACE_WITH_PARENT_ORIGIN") return false;
+          var parsed = new URL(candidate);
+          if (typeof window !== "undefined" && window.location && window.location.origin && parsed.origin === window.location.origin) {
+            return true;
+          }
+          var host = parsed.hostname;
+          if (host === "localhost" || host === "127.0.0.1") {
+            return (parsed.protocol === "http:" || parsed.protocol === "https:");
+          }
+          return parsed.protocol === "https:" && allowedHostRe.test(host);
+        }
+        if (typeof window !== "undefined" && window.location && typeof window.location.search === "string") {
+          var params = new URLSearchParams(window.location.search);
+          var originParam = params.get("origin");
+          if (originParam && isAllowedOrigin(originParam)) {
+            targetOrigin = new URL(originParam).origin;
+          }
+        }
+        if (!targetOrigin && typeof document !== "undefined" && document.referrer && isAllowedOrigin(document.referrer)) {
+          targetOrigin = new URL(document.referrer).origin;
+        }
+      } catch (e) {
+        targetOrigin = "";
+      }
+      if (targetOrigin && targetOrigin !== "*" && window.parent) {
+        window.parent.postMessage({ type: "a2ui_action", action: action, data: data }, targetOrigin);
+      }
+    }
+    window.emit = emit;
+  </script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
